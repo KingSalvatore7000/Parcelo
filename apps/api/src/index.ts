@@ -28,7 +28,7 @@ initSocketService(io);
 // Middleware
 app.use(cors({
   origin: [
-    'https://parcelo.onrender.com',
+    'https://parceloo.onrender.com',
     'http://localhost:5173'
   ],
   credentials: true,
