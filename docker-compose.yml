@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: thapal_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: thapal_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - thapal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d thapal_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  thapal_pgdata:
+    driver: local

@@ -1,0 +1,30 @@
+{
+  "name": "thapal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Thapal - Modern parcel-room management for Indian apartment societies",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace=apps/api run dev",
+    "dev:web": "npm --workspace=apps/web run dev",
+    "build:shared": "npm --workspace=packages/shared run build",
+    "build:api": "npm --workspace=apps/api run build",
+    "build:web": "npm --workspace=apps/web run build",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "npm --workspace=apps/api run prisma:migrate",
+    "db:seed": "npm --workspace=apps/api run prisma:seed",
+    "db:studio": "npm --workspace=apps/api run prisma:studio"
+  },
+  "keywords": [
+    "parcel-room",
+    "apartment-society",
+    "india",
+    "fetch-package"
+  ],
+  "author": "Thapal Engineering Team",
+  "license": "ISC"
+}

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Postal stamp card serrated edge effect */
+.postal-stamp-card {
+  position: relative;
+  background-color: #FFFFFF;
+  border-radius: 14px;
+  border: 1.5px solid #DCE5E3;
+  box-shadow: 0 4px 20px -2px rgba(11, 93, 91, 0.08), 0 2px 6px -1px rgba(11, 93, 91, 0.04);
+}
+
+.dark .postal-stamp-card {
+  background-color: #0d1e1e;
+  border-color: #1e3a38;
+  box-shadow: 0 4px 25px -2px rgba(0, 0, 0, 0.5);
+}
+
+/* Big touch target utility for gate tablet and mobile */
+.btn-touch {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  transition: all 0.15s ease-in-out;
+  user-select: none;
+}
+
+.btn-touch:active {
+  transform: scale(0.98);
+}
