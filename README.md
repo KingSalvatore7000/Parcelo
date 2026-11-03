@@ -186,10 +186,8 @@ Contributions are welcome.
 3. Commit your changes: `git commit -m "Add your feature"`
 4. Push the branch and open a pull request
 
-## License
-Released under the [MIT License](LICENSE).
-
 
 ## Author
 **Amarnath** · B.E. Computer Science and Engineering, Kumaraguru College of Technology, Coimbatore
 GitHub: [@KingSalvatore7000](https://github.com/KingSalvatore7000)
+
