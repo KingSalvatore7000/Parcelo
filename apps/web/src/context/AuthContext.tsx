@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, session } from '../services/api';
 
 export interface User {
   id: string;
@@ -31,7 +31,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('parcelo_token'));
+  // The session is the refresh token: the access token is renewed from it as it expires
+  const [token, setToken] = useState<string | null>(() => session.refresh() ?? session.access());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -57,9 +58,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithOtp = async (phone: string, otp: string): Promise<User> => {
     const res = await api.auth.verifyOtp(phone, otp);
-    const { token: newToken, user: userData } = res.data;
-    localStorage.setItem('parcelo_token', newToken);
-    setToken(newToken);
+    const { token: newToken, refreshToken, user: userData } = res.data;
+    // Switching accounts (demo "Switch view"): end the previous session on the server
+    const previous = session.refresh();
+    if (previous) api.auth.logout(previous).catch(() => {});
+    session.save(newToken, refreshToken);
+    setToken(refreshToken);
     setUser(userData);
     return userData;
   };
@@ -76,7 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    localStorage.removeItem('parcelo_token');
+    const refreshToken = session.refresh();
+    if (refreshToken) api.auth.logout(refreshToken).catch(() => {});
+    session.clear();
     setToken(null);
     setUser(null);
   };

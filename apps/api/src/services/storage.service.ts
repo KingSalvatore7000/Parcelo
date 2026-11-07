@@ -1,6 +1,47 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import type { Request, Response, NextFunction } from 'express';
+import { parcelPhotoPathRegex } from '@parcelo/shared';
+import { config } from '../config/env';
+
+// ─── Signed photo links ──────────────────────────────────────────────────────
+// Photos are private: the database keeps the bare path, and every API answer turns it into a
+// link that works for PHOTO_URL_TTL_MINUTES. The key is derived from JWT_SECRET.
+const photoKey = crypto.createHash('sha256').update(`parcel-photos:${config.jwtSecret}`).digest();
+
+function photoSig(p: string, exp: number) {
+  return crypto.createHmac('sha256', photoKey).update(`${p}:${exp}`).digest('base64url').slice(0, 32);
+}
+
+/** /uploads/parcels/x.jpg -> /uploads/parcels/x.jpg?exp=...&sig=... ; other values pass through */
+export function signPhotoUrl(p: string | null | undefined): string | null {
+  if (!p) return null;
+  if (!parcelPhotoPathRegex.test(p)) return p; // an older external link, left as it is
+  // Round the expiry to 5 minutes so repeated answers reuse the same link (browser cache)
+  const step = 5 * 60;
+  const exp = Math.ceil((Date.now() / 1000 + config.photoUrlTtlMinutes * 60) / step) * step;
+  return `${p}?exp=${exp}&sig=${photoSig(p, exp)}`;
+}
+
+/** Express middleware for /uploads: only a valid, unexpired signature gets the file */
+export function requireSignedPhoto(req: Request, res: Response, next: NextFunction) {
+  const p = `/uploads${req.path}`;
+  const exp = Number(req.query.exp);
+  const sig = typeof req.query.sig === 'string' ? req.query.sig : '';
+  const expected = Number.isFinite(exp) ? photoSig(p, exp) : '';
+  const ok =
+    parcelPhotoPathRegex.test(p) &&
+    exp * 1000 > Date.now() &&
+    sig.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  if (!ok) {
+    res.status(403).json({ error: 'PHOTO_LINK_INVALID', message: 'This photo link has expired. Reload the page.' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  next();
+}
 
 /** apps/api/uploads (same depth from src/services and dist/services) */
 export const UPLOAD_ROOT = path.resolve(__dirname, '../../uploads');

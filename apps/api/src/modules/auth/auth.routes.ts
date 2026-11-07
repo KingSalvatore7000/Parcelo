@@ -59,6 +59,8 @@ const otpVerifyLimiter = rateLimit({
 
 router.post('/otp/request', otpRequestLimiter, otpPhoneLimiter, (req, res, next) => authController.requestOtp(req, res, next));
 router.post('/otp/verify', otpVerifyLimiter, (req, res, next) => authController.verifyOtp(req, res, next));
+router.post('/refresh', otpVerifyLimiter, (req, res, next) => authController.refresh(req, res, next));
+router.post('/logout', (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 
 export const authRoutes = router;

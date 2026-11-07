@@ -38,6 +38,11 @@ enum NotificationStatus {
   FAILED
 }
 
+enum NotificationKind {
+  NEW_PARCEL
+  REMINDER
+}
+
 model Society {
   id        String   @id @default(uuid())
   name      String
@@ -84,6 +89,7 @@ model User {
   loggedParcels   Parcel[]       @relation("LoggedParcels")
   completedHandovers Handover[]  @relation("CompletedHandovers")
   notifications   Notification[]
+  refreshTokens   RefreshToken[]
 
   @@index([societyId])
   @@index([flatId])
@@ -143,14 +149,32 @@ model Notification {
   parcelId  String?
   parcel    Parcel?             @relation(fields: [parcelId], references: [id], onDelete: Cascade)
   channel   NotificationChannel
+  kind      NotificationKind    @default(NEW_PARCEL)
   status    NotificationStatus  @default(PENDING)
+  attempts  Int                 @default(0)
+  lastError String?
   sentAt    DateTime?
   metadata  String?
   createdAt DateTime            @default(now())
 
   @@index([userId])
   @@index([parcelId])
+  @@index([status, createdAt])
   @@map("notifications")
+}
+
+/// A signed-in device. Only the SHA-256 of the token is stored; each refresh replaces it.
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model OtpSession {
