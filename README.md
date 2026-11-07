@@ -79,7 +79,7 @@ parcelo/
 ├── apps/
 │   ├── api/        # Express API, Prisma schema, jobs
 │   ├── web/        # Guard desk and admin dashboard (React)
-│   └── mobile/     # Resident app (React Native, Expo)
+│   └── mobile/     # Resident app (React Native, Expo) — planned
 ├── packages/
 │   └── shared/     # Shared types and Zod schemas
 ├── docker-compose.yml
@@ -90,8 +90,7 @@ parcelo/
 
 ### Prerequisites
 - Node.js 20 or later
-- Docker (for local PostgreSQL)
-- Expo Go on a phone, or an Android or iOS emulator
+- Docker Desktop (for local PostgreSQL, exposed on host port **5433**)
 
 ### Setup
 ```bash
@@ -100,25 +99,31 @@ git clone https://github.com/KingSalvatore7000/parcelo.git
 cd parcelo
 
 # 2. Install dependencies
+#    (postinstall builds packages/shared and generates the Prisma client)
 npm install
 
 # 3. Start PostgreSQL
-docker compose up -d
+npm run db:up
 
 # 4. Configure environment
-cp apps/api/.env.example apps/api/.env
+#    The API reads the root .env; the Prisma CLI reads apps/api/.env
+cp .env.example .env
+cp .env.example apps/api/.env
 
-# 5. Create tables and seed demo data
-npx prisma migrate dev --schema apps/api/prisma/schema.prisma
-npm run seed
+# 5. Create tables
+npm run db:migrate
 
-# 6. Run the apps (separate terminals)
-npm run dev:api
-npm run dev:web
-npm run dev:mobile
+# 6. Load demo data (WARNING: deletes all existing data first)
+npm run db:seed
+
+# 7. Run the apps (separate terminals)
+npm run dev:api   # http://localhost:4000
+npm run dev:web   # http://localhost:5173
 ```
 
-> Script names above are the expected defaults. Adjust them to match the `package.json` files in this repo.
+Other scripts: `npm run build` (shared, API and web), `npm run db:studio`, `npm run db:down`.
+
+> The resident mobile app (`apps/mobile`) is planned and not in the repo yet.
 
 ### Demo flow
 1. Sign in as the guard and log a parcel for a flat.
@@ -128,15 +133,21 @@ npm run dev:mobile
 
 ## Environment variables
 
+Used today (see `.env.example`):
+
 | Variable | Description |
 |---|---|
+| `PORT` | API port (default `4000`) |
+| `NODE_ENV` | `development` or `production` |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Secret for signing access tokens |
-| `JWT_REFRESH_SECRET` | Secret for refresh tokens |
-| `FCM_SERVER_KEY` | Firebase Cloud Messaging credentials |
-| `WHATSAPP_TOKEN` | WhatsApp Cloud API token (optional) |
-| `STORAGE_BUCKET` | Photo storage configuration |
-| `OTP_PROVIDER` | `mock` in development, a real SMS provider in production |
+| `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
+| `CORS_ORIGIN` | Comma-separated allowed web origins |
+| `MOCK_SMS_CONSOLE` | Print login OTPs to the API console |
+| `DEFAULT_DEV_OTP` | Fixed login OTP in development |
+| `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
+
+Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCKET`, `OTP_PROVIDER`.
 
 ## API overview
 

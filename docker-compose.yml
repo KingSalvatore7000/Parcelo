@@ -1,3 +1,6 @@
+# Fixed project name so the container and volume don't change with the folder name
+name: thapal
+
 services:
   postgres:
     image: postgres:16-alpine
