@@ -120,7 +120,17 @@ npm run dev:api   # http://localhost:4000
 npm run dev:web   # http://localhost:5173
 ```
 
-Other scripts: `npm run build` (shared, API and web), `npm run db:studio`, `npm run db:down`.
+Other scripts: `npm run build` (shared, API and web), `npm test` (API tests), `npm run db:studio`, `npm run db:down`.
+
+### Tests
+`npm test` runs the API suite (Vitest + Supertest) against a separate `test` schema in the same Postgres, rebuilt from the migrations on every run, so your dev data is never touched. Set `TEST_DATABASE_URL` to use another database. GitHub Actions runs the same suite, the API type-check and the web build on every push and pull request (`.github/workflows/ci.yml`).
+
+### Deploy with Docker
+```bash
+cp .env.example .env.prod   # set POSTGRES_PASSWORD, JWT_SECRET, PUBLIC_WEB_URL, PUBLIC_API_URL and the message provider
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+The API container applies pending migrations on start. Put a TLS proxy in front of the web (8080) and API (4000) ports.
 
 > The resident mobile app (`apps/mobile`) is planned and not in the repo yet.
 
@@ -139,26 +149,37 @@ Used today (see `.env.example`):
 | `PORT` | API port (default `4000`) |
 | `NODE_ENV` | `development`, `test` or `production`. **Unset means production.** |
 | `DATABASE_URL` | PostgreSQL connection string (required in production) |
-| `JWT_SECRET` | Secret for signing access tokens (production: random, 32+ characters) |
-| `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
+| `JWT_SECRET` | Secret for signing access tokens and photo links (production: random, 32+ characters) |
+| `JWT_EXPIRES_IN` | Access token lifetime (default `15m`); the app renews it with the refresh token |
+| `REFRESH_TOKEN_DAYS` | How long a device stays signed in without use (default `30`) |
 | `CORS_ORIGIN` | Comma-separated allowed web origins (default: `https://parceloo.onrender.com` and localhost) |
 | `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
 | `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
-| `MOCK_SMS_CONSOLE` | Print login OTPs to the API console (default on only in development) |
 | `DEFAULT_DEV_OTP` | Fixed 6-digit login OTP, honoured only in development (default `123456`) |
+| `NOTIFY_CHANNEL` | Parcel alerts and reminders: `console` (prints them), `whatsapp` or `sms` |
+| `OTP_CHANNEL` | Sign-in codes: same choices; production requires `whatsapp` or `sms` |
+| `WHATSAPP_*` | WhatsApp Cloud API token, phone number id, language and template names |
+| `MSG91_*` | MSG91 auth key and DLT template ids |
+| `JOBS_ENABLED` | Background jobs (default on, off in tests) |
+| `REMINDER_AFTER_DAYS` | Remind residents after this many days (default `2`, daytime IST, once a day) |
+| `UNCLAIMED_AFTER_DAYS` | Mark parcels unclaimed after this many days (default `7`) |
+| `PHOTO_URL_TTL_MINUTES` | How long a parcel photo link works (default `60`) |
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
 | `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
 
-In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing.
+In production the API refuses to start if `DATABASE_URL`, a real `JWT_SECRET` or a real `OTP_CHANNEL` is missing.
 
-Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCKET`, `OTP_PROVIDER`.
+### Messages
+New-parcel alerts and reminders are written to an outbox table and sent every 30 seconds through `NOTIFY_CHANNEL`, retried up to 3 times. Register these templates with your provider (variables in this order): **OTP** (code), **NEW_PARCEL** (courier, flat), **REMINDER** (courier, flat, days waiting), and put their names or ids in the matching `WHATSAPP_TEMPLATE_*` or `MSG91_TEMPLATE_*` variables.
 
 ## API overview
 
 | Method | Route | Purpose |
 |---|---|---|
 | POST | `/auth/otp/request` | Request a login OTP |
-| POST | `/auth/otp/verify` | Verify OTP and receive tokens |
+| POST | `/auth/otp/verify` | Verify OTP and receive an access and a refresh token |
+| POST | `/auth/refresh` | Swap the refresh token for a new pair (the old one stops working) |
+| POST | `/auth/logout` | End this device's session |
 | POST | `/parcels` | Guard logs a parcel |
 | GET | `/parcels` | List parcels, scoped by role |
 | GET | `/parcels/slots` | Bookable slots (IST, today and tomorrow) and fees |
