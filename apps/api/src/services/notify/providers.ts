@@ -19,6 +19,8 @@ export interface OutgoingMessage {
   template?: string;
   /** Template variables, in the template's order */
   params: string[];
+  /** A one-time code: WhatsApp authentication templates also need it for their copy-code button */
+  otp?: string;
 }
 
 export interface Provider {
@@ -86,7 +88,13 @@ export class WhatsAppCloudProvider implements Provider {
         template: {
           name: msg.template,
           language: { code: this.language },
-          components: [{ type: 'body', parameters: msg.params.map((text) => ({ type: 'text', text })) }],
+          components: [
+            { type: 'body', parameters: msg.params.map((text) => ({ type: 'text', text })) },
+            // Authentication templates carry a "Copy code" button that takes the code as well
+            ...(msg.otp
+              ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: msg.otp }] }]
+              : []),
+          ],
         },
       }
     );

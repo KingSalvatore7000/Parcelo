@@ -66,7 +66,7 @@ export function compose(channel: Channel, kind: MessageKind, to: string, params:
 /** Send a login OTP right away (not through the outbox: it must arrive within its 5 minutes) */
 export async function sendOtp(phone: string, otp: string): Promise<void> {
   const ch = config.notify.otpChannel;
-  await provider(ch).send(compose(ch, 'OTP', phone, [otp]));
+  await provider(ch).send({ ...compose(ch, 'OTP', phone, [otp]), otp });
 }
 
 /** The database channel value for the configured notification channel */
