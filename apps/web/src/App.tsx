@@ -50,7 +50,9 @@ const RootRedirect: React.FC = () => {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // Signed-out visitors see the intro page first (a static page in public/welcome); it links to /login
+    window.location.replace('/welcome/');
+    return null;
   }
 
   if (user.role === 'GUARD') return <Navigate to="/guard" replace />;
