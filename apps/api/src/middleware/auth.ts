@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '@parcelo/shared';
 import { config } from '../config/env';
+import { prisma } from '../lib/prisma';
 
 export interface AuthUserPayload {
   id: string;
@@ -21,9 +22,34 @@ declare global {
 }
 
 /**
+ * Verifies a JWT and reloads the user from the database, so a deleted user,
+ * a role change or a flat move takes effect immediately instead of at token expiry.
+ * Returns null for any invalid token or missing user.
+ */
+export async function resolveAuthUser(token: string | undefined | null): Promise<AuthUserPayload | null> {
+  if (!token) return null;
+
+  let decoded: { id?: unknown };
+  try {
+    decoded = jwt.verify(token, config.jwtSecret) as { id?: unknown };
+  } catch {
+    return null;
+  }
+  if (typeof decoded.id !== 'string') return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.id },
+    select: { id: true, name: true, phone: true, role: true, societyId: true, flatId: true },
+  });
+  if (!user) return null;
+
+  return { ...user, role: user.role as UserRole };
+}
+
+/**
  * Verifies JWT token from Authorization: Bearer <token>
  */
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({
@@ -33,17 +59,19 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     return;
   }
 
-  const token = authHeader.split(' ')[1];
-
   try {
-    const decoded = jwt.verify(token, config.jwtSecret) as AuthUserPayload;
-    req.user = decoded;
+    const user = await resolveAuthUser(authHeader.slice('Bearer '.length));
+    if (!user) {
+      res.status(401).json({
+        error: 'TOKEN_EXPIRED_OR_INVALID',
+        message: 'Your session has expired or the token is invalid. Please log in again.',
+      });
+      return;
+    }
+    req.user = user;
     next();
   } catch (err) {
-    res.status(401).json({
-      error: 'TOKEN_EXPIRED_OR_INVALID',
-      message: 'Your session has expired or the token is invalid. Please log in again.',
-    });
+    next(err);
   }
 }
 
@@ -63,7 +91,7 @@ export function requireRole(...allowedRoles: UserRole[]) {
     if (!allowedRoles.includes(req.user.role)) {
       res.status(403).json({
         error: 'FORBIDDEN',
-        message: `Access denied. Requires one of [${allowedRoles.join(', ')}], but current role is ${req.user.role}.`,
+        message: 'You do not have permission to do this.',
       });
       return;
     }

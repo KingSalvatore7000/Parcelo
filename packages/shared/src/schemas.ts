@@ -23,10 +23,17 @@ export const verifyOtpSchema = z.object({
     .max(6, 'OTP cannot exceed 6 digits'),
 });
 
+/** Public path the API returns for an uploaded parcel photo */
+export const parcelPhotoPathRegex = /^\/uploads\/parcels\/[a-f0-9]{32}\.(jpg|png|webp)$/;
+
 export const createParcelSchema = z.object({
   flatId: z.string().uuid('Please select a valid flat'),
-  courier: z.string().trim().min(2, 'Courier name must be at least 2 characters'),
-  photoUrl: z.string().optional().nullable(),
+  courier: z.string().trim().min(2, 'Courier name must be at least 2 characters').max(60),
+  photoUrl: z
+    .string()
+    .regex(parcelPhotoPathRegex, 'Photo must be uploaded through Parcelo first')
+    .optional()
+    .nullable(),
 });
 
 export const scheduleParcelSchema = z.object({

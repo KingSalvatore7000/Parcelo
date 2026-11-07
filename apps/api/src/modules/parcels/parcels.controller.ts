@@ -167,13 +167,13 @@ export class ParcelsController {
    */
   async uploadPhoto(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { image, filename } = req.body;
+      const image = req.body?.image;
       if (!image) {
         res.status(400).json({ error: 'NO_IMAGE', message: 'No image data provided' });
         return;
       }
 
-      const photoUrl = await storageService.uploadPhoto(image, filename || 'parcel.jpg');
+      const photoUrl = await storageService.uploadPhoto(image);
       res.status(200).json({
         success: true,
         photoUrl,

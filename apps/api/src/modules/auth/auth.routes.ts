@@ -2,8 +2,26 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from './auth.controller';
 import { authenticate } from '../../middleware/auth';
+import { normalizePhone } from './auth.service';
 
 const router = Router();
+
+// Per phone number: at most 5 OTP requests per 15 mins, whichever IPs they come from.
+// Stops one number being flooded with SMS and limits guessing across fresh OTPs.
+const otpPhoneLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => {
+    const phone = typeof req.body?.phone === 'string' ? req.body.phone : '';
+    return `phone:${normalizePhone(phone)}`;
+  },
+  message: {
+    error: 'RATE_LIMIT_EXCEEDED',
+    message: 'Too many OTP requests for this number. Please try again after 15 minutes.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Rate limiter for OTP requests: 10 requests per 15 mins per IP
 const otpRequestLimiter = rateLimit({
@@ -29,7 +47,7 @@ const otpVerifyLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.post('/otp/request', otpRequestLimiter, (req, res, next) => authController.requestOtp(req, res, next));
+router.post('/otp/request', otpRequestLimiter, otpPhoneLimiter, (req, res, next) => authController.requestOtp(req, res, next));
 router.post('/otp/verify', otpVerifyLimiter, (req, res, next) => authController.verifyOtp(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 

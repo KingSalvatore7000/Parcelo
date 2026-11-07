@@ -1,7 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Camera, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
+import { assetUrl } from '../../config';
 import { COMMON_COURIERS } from '@parcelo/shared';
+
+/** Downscale a photo to at most 1600px on its long side and re-encode as JPEG (~200-500 KB) */
+async function toUploadableJpeg(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
 
 interface LogParcelModalProps {
   isOpen: boolean;
@@ -20,6 +33,8 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
   const [flatSearch, setFlatSearch] = useState<string>('');
   const [flats, setFlats] = useState<any[]>([]);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,12 +68,24 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
 
   const selectedFlat = flats.find((f) => f.id === selectedFlatId);
 
-  // Attach a mock package photo for demo testing
-  const handleAttachMockPhoto = () => {
-    const courierName = courier === 'Other' ? (customCourier || 'Package') : courier;
-    const flatText = selectedFlat ? selectedFlat.label : 'Gate Parcel';
-    const mockPhoto = `https://placehold.co/600x400/0B5D5B/ffffff?text=${encodeURIComponent(courierName)}+for+${encodeURIComponent(flatText)}`;
-    setPhotoUrl(mockPhoto);
+  // Camera on phones and tablets, file picker on desktops
+  const handlePickPhoto = () => fileInputRef.current?.click();
+
+  const handlePhotoChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again
+    if (!file) return;
+    setError(null);
+    setIsUploading(true);
+    try {
+      const dataUrl = await toUploadableJpeg(file);
+      const res = await api.parcels.uploadPhoto(dataUrl);
+      setPhotoUrl(res.photoUrl);
+    } catch (err: any) {
+      setError(err.message || 'Could not upload the photo. Try again.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -213,16 +240,31 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
               </label>
               <button
                 type="button"
-                onClick={handleAttachMockPhoto}
-                className="text-xs font-bold text-coral hover:underline"
+                onClick={handlePickPhoto}
+                disabled={isUploading}
+                className="text-xs font-bold text-coral hover:underline disabled:opacity-50"
               >
-                + Snapshot
+                {photoUrl ? 'Retake' : '+ Photo'}
               </button>
             </div>
 
-            {photoUrl ? (
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              onChange={handlePhotoChosen}
+              className="hidden"
+            />
+
+            {isUploading ? (
+              <div className="w-full py-4 border-2 border-dashed border-line dark:border-slate-700 rounded-xl flex flex-col items-center justify-center text-sage">
+                <Loader2 className="w-6 h-6 mb-1 animate-spin" />
+                <span className="text-xs font-semibold">Uploading photo...</span>
+              </div>
+            ) : photoUrl ? (
               <div className="relative rounded-xl overflow-hidden border border-line dark:border-slate-700 h-28 bg-mist dark:bg-slate-800 flex items-center justify-center">
-                <img src={photoUrl} alt="Parcel preview" className="w-full h-full object-cover" />
+                <img src={assetUrl(photoUrl)} alt="Parcel preview" className="w-full h-full object-cover" />
                 <button
                   type="button"
                   onClick={() => setPhotoUrl(null)}
@@ -234,7 +276,7 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={handleAttachMockPhoto}
+                onClick={handlePickPhoto}
                 className="w-full py-4 border-2 border-dashed border-line dark:border-slate-700 rounded-xl flex flex-col items-center justify-center text-sage hover:border-coral hover:text-coral transition"
               >
                 <Camera className="w-6 h-6 mb-1" />
@@ -247,7 +289,7 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
           <div className="pt-2">
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUploading}
               className="btn-touch w-full bg-coral hover:bg-coral-hover text-white font-heading font-extrabold text-base tracking-wide rounded-xl shadow-lg transition flex items-center justify-center space-x-2 disabled:opacity-50"
             >
               {isSubmitting ? (

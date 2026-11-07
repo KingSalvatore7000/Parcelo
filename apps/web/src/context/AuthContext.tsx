@@ -65,9 +65,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const quickLogin = async (phone: string): Promise<User> => {
-    // 1. Request OTP (in dev defaults to 123456)
+    // Demo only: works when the API runs in development and returns the OTP
     const reqRes = await api.auth.requestOtp(phone);
-    const otp = reqRes.devOtp || '123456';
+    const otp = reqRes.devOtp;
+    if (!otp) {
+      throw new Error('Quick login needs the API running in development mode.');
+    }
     // 2. Verify OTP
     return loginWithOtp(phone, otp);
   };

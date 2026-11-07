@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Package, Shield, Home, ArrowRight, Loader2, AlertCircle, Phone, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { DEMO_MODE } from '../config';
 
 export const LoginPage: React.FC = () => {
   const { loginWithOtp, quickLogin } = useAuth();
   const navigate = useNavigate();
 
-  const [phone, setPhone] = useState<string>('+919876543210');
+  const [phone, setPhone] = useState<string>(DEMO_MODE ? '+919876543210' : '');
   const [otp, setOtp] = useState<string>('');
   const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -182,7 +183,8 @@ export const LoginPage: React.FC = () => {
             </form>
           )}
 
-          {/* Quick Demo Logins Section */}
+          {/* Quick Demo Logins Section (dev / demo builds only) */}
+          {DEMO_MODE && (
           <div className="pt-4 border-t border-line dark:border-slate-800">
             <div className="text-xs uppercase font-extrabold tracking-wider text-sage mb-2.5 text-center">
               One-Click Demo Profiles
@@ -241,6 +243,7 @@ export const LoginPage: React.FC = () => {
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

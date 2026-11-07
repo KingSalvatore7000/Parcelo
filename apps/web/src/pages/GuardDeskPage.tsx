@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PackagePlus, Search, RefreshCw, CheckCircle2, Clock, ShieldCheck, Box, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import { assetUrl } from '../config';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { LogParcelModal } from '../components/guard/LogParcelModal';
@@ -384,7 +385,7 @@ export const GuardDeskPage: React.FC = () => {
                       className="my-3 rounded-xl overflow-hidden h-28 border"
                       style={{ borderColor: '#DCE5E3' }}
                     >
-                      <img src={parcel.photoUrl} alt="Parcel Proof" className="w-full h-full object-cover" />
+                      <img src={assetUrl(parcel.photoUrl)} alt="Parcel Proof" className="w-full h-full object-cover" />
                     </div>
                   )}
 

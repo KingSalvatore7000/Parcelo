@@ -138,14 +138,18 @@ Used today (see `.env.example`):
 | Variable | Description |
 |---|---|
 | `PORT` | API port (default `4000`) |
-| `NODE_ENV` | `development` or `production` |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET` | Secret for signing access tokens |
+| `NODE_ENV` | `development`, `test` or `production`. **Unset means production.** |
+| `DATABASE_URL` | PostgreSQL connection string (required in production) |
+| `JWT_SECRET` | Secret for signing access tokens (production: random, 32+ characters) |
 | `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
-| `CORS_ORIGIN` | Comma-separated allowed web origins |
-| `MOCK_SMS_CONSOLE` | Print login OTPs to the API console |
-| `DEFAULT_DEV_OTP` | Fixed login OTP in development |
+| `CORS_ORIGIN` | Comma-separated allowed web origins (required in production) |
+| `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
+| `MOCK_SMS_CONSOLE` | Print login OTPs to the API console (default on only in development) |
+| `DEFAULT_DEV_OTP` | Fixed 6-digit login OTP, honoured only in development (default `123456`) |
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
+| `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
+
+In production the API refuses to start if `DATABASE_URL`, `CORS_ORIGIN` or a real `JWT_SECRET` is missing.
 
 Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCKET`, `OTP_PROVIDER`.
 

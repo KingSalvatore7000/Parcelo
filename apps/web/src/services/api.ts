@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL } from '../config';
 
 export class ApiError extends Error {
   code: string;
@@ -119,10 +119,11 @@ export const api = {
         body: JSON.stringify(body),
       }),
 
-    uploadPhoto: (image: string, filename?: string) =>
+    /** image: a data:image/jpeg|png|webp;base64,... URL, at most 5 MB decoded */
+    uploadPhoto: (image: string) =>
       request<{ success: boolean; photoUrl: string }>('/parcels/upload-photo', {
         method: 'POST',
-        body: JSON.stringify({ image, filename }),
+        body: JSON.stringify({ image }),
       }),
   },
 

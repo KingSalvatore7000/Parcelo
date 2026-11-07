@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Package, LogOut, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { DEMO_MODE } from '../config';
 
 // Brand palette — inline styles for reliable Tailwind purge-safety
 const C = {
@@ -99,8 +100,8 @@ export const Navbar: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Demo Role Switcher */}
-          {user && (
+          {/* Quick Demo Role Switcher (dev / demo builds only) */}
+          {DEMO_MODE && user && (
             <div
               className="hidden md:flex items-center space-x-1.5 p-1 rounded-xl text-xs"
               style={{ background: `${C.tealDark}cc`, border: `1px solid rgba(246,231,203,0.15)` }}

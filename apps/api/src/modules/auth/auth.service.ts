@@ -46,8 +46,8 @@ export class AuthService {
       };
     }
 
-    // Generate OTP (use default in dev for easy testing or random 6-digit)
-    const otp = config.nodeEnv === 'development' && config.defaultDevOtp ? config.defaultDevOtp : generate6DigitOtp();
+    // Fixed OTP only in development (config leaves it undefined otherwise); random everywhere else
+    const otp = config.defaultDevOtp ?? generate6DigitOtp();
     const otpHash = await hashCode(otp);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
@@ -79,7 +79,7 @@ export class AuthService {
       success: true,
       message: `OTP sent successfully to ${phone}`,
       expiresInSeconds: 300,
-      devOtp: config.nodeEnv === 'development' ? otp : undefined,
+      devOtp: config.isDev ? otp : undefined,
     };
   }
 
@@ -165,8 +165,8 @@ export class AuthService {
     };
 
     const token = jwt.sign(payload, config.jwtSecret, {
-      expiresIn: '7d',
-    });
+      expiresIn: config.jwtExpiresIn,
+    } as jwt.SignOptions);
 
     return {
       token,
