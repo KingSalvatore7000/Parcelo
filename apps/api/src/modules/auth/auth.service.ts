@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { UserRole } from '@thapal/shared';
+import { UserRole } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
 import { hashCode, verifyCode, generate6DigitOtp } from '../../utils/crypto';
@@ -46,14 +46,14 @@ export class AuthService {
       };
     }
 
-    // Generate OTP (use default in dev for easy testing or random 6-digit)
-    const otp = config.nodeEnv === 'development' && config.defaultDevOtp ? config.defaultDevOtp : generate6DigitOtp();
+    // Fixed OTP only in development (config leaves it undefined otherwise); random everywhere else
+    const otp = config.defaultDevOtp ?? generate6DigitOtp();
     const otpHash = await hashCode(otp);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
-    // Invalidate prior sessions
+    // Invalidate this number's earlier sessions and sweep away any expired ones
     await prisma.otpSession.deleteMany({
-      where: { phone },
+      where: { OR: [{ phone }, { expiresAt: { lt: new Date() } }] },
     });
 
     // Save session
@@ -70,7 +70,7 @@ export class AuthService {
     if (config.mockSmsConsole) {
       console.log('========================================================');
       console.log(`📱 [MOCK SMS to ${phone}]`);
-      console.log(`Your Thapal verification code is: [ ${otp} ]`);
+      console.log(`Your Parcelo verification code is: [ ${otp} ]`);
       console.log(`Valid for 5 minutes. Do not share this with anyone.`);
       console.log('========================================================');
     }
@@ -79,7 +79,7 @@ export class AuthService {
       success: true,
       message: `OTP sent successfully to ${phone}`,
       expiresInSeconds: 300,
-      devOtp: config.nodeEnv === 'development' ? otp : undefined,
+      devOtp: config.isDev ? otp : undefined,
     };
   }
 
@@ -165,8 +165,8 @@ export class AuthService {
     };
 
     const token = jwt.sign(payload, config.jwtSecret, {
-      expiresIn: '7d',
-    });
+      expiresIn: config.jwtExpiresIn,
+    } as jwt.SignOptions);
 
     return {
       token,

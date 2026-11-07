@@ -78,7 +78,7 @@ parcelo/
 ├── apps/
 │   ├── api/        # Express API, Prisma schema, jobs
 │   ├── web/        # Guard desk and admin dashboard (React)
-│   └── mobile/     # Resident app (React Native, Expo)
+│   └── mobile/     # Resident app (React Native, Expo) — planned
 ├── packages/
 │   └── shared/     # Shared types and Zod schemas
 ├── docker-compose.yml
@@ -89,8 +89,7 @@ parcelo/
 
 ### Prerequisites
 - Node.js 20 or later
-- Docker (for local PostgreSQL)
-- Expo Go on a phone, or an Android or iOS emulator
+- Docker Desktop (for local PostgreSQL, exposed on host port **5433**)
 
 ### Setup
 ```bash
@@ -99,25 +98,31 @@ git clone https://github.com/KingSalvatore7000/parcelo.git
 cd parcelo
 
 # 2. Install dependencies
+#    (postinstall builds packages/shared and generates the Prisma client)
 npm install
 
 # 3. Start PostgreSQL
-docker compose up -d
+npm run db:up
 
 # 4. Configure environment
-cp apps/api/.env.example apps/api/.env
+#    The API reads the root .env; the Prisma CLI reads apps/api/.env
+cp .env.example .env
+cp .env.example apps/api/.env
 
-# 5. Create tables and seed demo data
-npx prisma migrate dev --schema apps/api/prisma/schema.prisma
-npm run seed
+# 5. Create tables
+npm run db:migrate
 
-# 6. Run the apps (separate terminals)
-npm run dev:api
-npm run dev:web
-npm run dev:mobile
+# 6. Load demo data (safe to re-run: creates or updates the demo society, flats and users)
+npm run db:seed
+
+# 7. Run the apps (separate terminals)
+npm run dev:api   # http://localhost:4000
+npm run dev:web   # http://localhost:5173
 ```
 
-> Script names above are the expected defaults. Adjust them to match the `package.json` files in this repo.
+Other scripts: `npm run build` (shared, API and web), `npm run db:studio`, `npm run db:down`.
+
+> The resident mobile app (`apps/mobile`) is planned and not in the repo yet.
 
 ### Demo flow
 1. Sign in as the guard and log a parcel for a flat.
@@ -127,15 +132,26 @@ npm run dev:mobile
 
 ## Environment variables
 
+Used today (see `.env.example`):
+
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET` | Secret for signing access tokens |
-| `JWT_REFRESH_SECRET` | Secret for refresh tokens |
-| `FCM_SERVER_KEY` | Firebase Cloud Messaging credentials |
-| `WHATSAPP_TOKEN` | WhatsApp Cloud API token (optional) |
-| `STORAGE_BUCKET` | Photo storage configuration |
-| `OTP_PROVIDER` | `mock` in development, a real SMS provider in production |
+| `PORT` | API port (default `4000`) |
+| `NODE_ENV` | `development`, `test` or `production`. **Unset means production.** |
+| `DATABASE_URL` | PostgreSQL connection string (required in production) |
+| `JWT_SECRET` | Secret for signing access tokens (production: random, 32+ characters) |
+| `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
+| `CORS_ORIGIN` | Comma-separated allowed web origins (default: `https://parceloo.onrender.com` and localhost) |
+| `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
+| `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
+| `MOCK_SMS_CONSOLE` | Print login OTPs to the API console (default on only in development) |
+| `DEFAULT_DEV_OTP` | Fixed 6-digit login OTP, honoured only in development (default `123456`) |
+| `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
+| `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
+
+In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing.
+
+Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCKET`, `OTP_PROVIDER`.
 
 ## API overview
 
@@ -145,10 +161,13 @@ npm run dev:mobile
 | POST | `/auth/otp/verify` | Verify OTP and receive tokens |
 | POST | `/parcels` | Guard logs a parcel |
 | GET | `/parcels` | List parcels, scoped by role |
-| POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code |
-| POST | `/parcels/:id/handover` | Guard submits the code to complete handover |
-| GET | `/admin/stats` | Dashboard counts |
-| POST/PATCH | `/admin/flats`, `/admin/users` | Manage flats and residents |
+| GET | `/parcels/slots` | Bookable slots (IST, today and tomorrow) and fees |
+| POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code (again to reschedule: new code, old one stops working) |
+| POST | `/parcels/:id/handover` | Guard submits the code to complete handover (locks after 5 wrong tries) |
+| POST | `/parcels/:id/return` | Guard returns an uncollected parcel to the courier |
+| GET | `/admin/stats` | Dashboard counts, overdue parcels, door-delivery fees this month |
+| GET/POST/PATCH/DELETE | `/admin/flats`, `/admin/users` | Manage flats and people (admins cannot remove or demote themselves) |
+| POST | `/admin/residents/import` | CSV import `name,phone,tower,flat`, all-or-nothing, `dryRun` to check first |
 
 ## Data model
 `Society` · `Flat` · `User` · `Parcel` · `Handover` · `Notification`

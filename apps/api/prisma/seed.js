@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 async function main() {
-    console.log('🌱 Starting Thapal database seeding...');
+    console.log('🌱 Starting Parcelo database seeding...');
     // 1. Clean existing data in reverse order of foreign keys
     await prisma.notification.deleteMany();
     await prisma.handover.deleteMany();

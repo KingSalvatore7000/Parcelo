@@ -4,7 +4,7 @@ import { PrismaClient, UserRole } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Starting Thapal database seeding...');
+  console.log('Starting Parcelo database seeding...');
 
   // Create or find the demo society
   let society = await prisma.society.findFirst({

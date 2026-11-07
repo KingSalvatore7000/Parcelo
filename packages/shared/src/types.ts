@@ -38,7 +38,7 @@ export interface HandoverDTO {
   slotStart: string;
   slotEnd: string;
   otpAttempts: number;
-  fee: number;
+  feePaise: number; // integer paise, ₹20 = 2000
   completedAt?: string | null;
   completedById?: string | null;
   completedByName?: string | null;
@@ -66,7 +66,7 @@ export interface HandoverStampDTO {
   mode: HandoverMode;
   slotStart: string;
   slotEnd: string;
-  fee: number;
+  feePaise: number; // integer paise, ₹20 = 2000
 }
 
 export interface NotificationDTO {

@@ -1,5 +1,5 @@
 {
-  "name": "@thapal/web",
+  "name": "@parcelo/web",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@thapal/shared": "*",
+    "@parcelo/shared": "*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.441.0",
     "react": "^18.3.1",

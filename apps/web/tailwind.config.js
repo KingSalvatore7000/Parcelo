@@ -8,7 +8,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Thapal Core Palette
+        // Parcelo Core Palette
         primary: {
           DEFAULT: '#0B5D5B', // Deep Teal
           hover: '#084846',

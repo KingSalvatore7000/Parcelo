@@ -3,5 +3,6 @@ node_modules/
 .env.*
 !.env.example
 dist/
+uploads/
 build/
 node_modules

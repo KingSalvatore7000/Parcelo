@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
-
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL as SOCKET_URL } from '../config';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -33,32 +32,25 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
+    // The server checks this token and puts the socket in the right rooms itself
     const newSocket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      auth: (cb) => cb({ token: localStorage.getItem('parcelo_token') }),
     });
 
     socketRef.current = newSocket;
 
     newSocket.on('connect', () => {
-      console.log('⚡ Connected to Thapal WebSocket:', newSocket.id);
       setIsConnected(true);
+    });
 
-      // Join role rooms
-      if (user.role === 'GUARD' || user.role === 'ADMIN') {
-        newSocket.emit('join:guard', user.societyId);
-      }
-
-      if (user.role === 'RESIDENT' && user.flatId) {
-        newSocket.emit('join:flat', {
-          societyId: user.societyId,
-          flatId: user.flatId,
-        });
-      }
+    newSocket.on('connect_error', (err) => {
+      console.warn('Live updates unavailable:', err.message);
     });
 
     newSocket.on('disconnect', () => {
-      console.log('🔌 Disconnected from Thapal WebSocket');
+      console.log('🔌 Disconnected from Parcelo WebSocket');
       setIsConnected(false);
     });
 

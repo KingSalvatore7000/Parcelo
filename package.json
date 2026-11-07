@@ -1,13 +1,15 @@
 {
-  "name": "thapal",
+  "name": "parcelo",
   "version": "1.0.0",
   "private": true,
-  "description": "Thapal - Modern parcel-room management for Indian apartment societies",
+  "description": "Parcelo - Modern parcel-room management for Indian apartment societies",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
+    "postinstall": "npm run build:shared && npm --workspace=apps/api run prisma:generate",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
     "dev:api": "npm --workspace=apps/api run dev",
     "dev:web": "npm --workspace=apps/web run dev",
     "build:shared": "npm --workspace=packages/shared run build",
@@ -25,6 +27,6 @@
     "india",
     "fetch-package"
   ],
-  "author": "Thapal Engineering Team",
+  "author": "Parcelo Engineering Team",
   "license": "ISC"
 }

@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { api } from '../services/api';
+import { formatFee } from '../config';
 
 // ─── Brand palette (inline style constants) ───────────────────────────────────
 const C = {
@@ -38,7 +39,7 @@ interface Parcel {
     mode: 'PICKUP' | 'DOOR';
     slotStart?: string;
     slotEnd?: string;
-    fee: number;
+    feePaise: number;
     completedAt?: string;
   } | null;
 }
@@ -50,9 +51,17 @@ interface HandoverStamp {
   mode: 'PICKUP' | 'DOOR';
   slotStart: string;
   slotEnd: string;
-  fee: number;
+  feePaise: number;
   code: string;
   expiresAt: string;
+  rescheduled?: boolean;
+}
+
+interface SlotOption {
+  start: string;
+  end: string;
+  day: 'today' | 'tomorrow';
+  label: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,30 +79,15 @@ function fmtDateTime(iso: string) {
   });
 }
 
-/** Build today's available 2-hour slots (rounded up to the next even hour). */
-function buildTodaySlots(): { label: string; start: string; end: string }[] {
-  const now = new Date();
-  const cutoff = new Date();
-  cutoff.setHours(now.getHours() + 1, 0, 0, 0); // at least 1h from now
-
-  const slots: { label: string; start: string; end: string }[] = [];
-  const hours = [8, 10, 12, 14, 16, 18, 20]; // 8am–10pm in 2h blocks
-  for (const h of hours) {
-    const slotStart = new Date(now);
-    slotStart.setHours(h, 0, 0, 0);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setHours(h + 2);
-
-    if (slotStart < cutoff) continue; // skip past slots
-    if (slotEnd.getDate() !== now.getDate()) continue; // no overnight
-
-    slots.push({
-      label: `${h}:00 – ${h + 2}:00`,
-      start: slotStart.toISOString(),
-      end: slotEnd.toISOString(),
-    });
-  }
-  return slots;
+/** "Today", "Tomorrow" or "12 Nov" for a slot time */
+function fmtDay(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+  return fmtDate(iso);
 }
 
 // ─── Schedule Slot Modal ──────────────────────────────────────────────────────
@@ -106,11 +100,27 @@ const ScheduleModal: React.FC<{
   const [slotIdx, setSlotIdx] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const slots = buildTodaySlots();
+  // Slots and fees come from the server, which also enforces them
+  const [slots, setSlots] = useState<SlotOption[] | null>(null);
+  const [fees, setFees] = useState<{ PICKUP: number; DOOR: number }>({ PICKUP: 0, DOOR: 0 });
+  const isReschedule = parcel.status === 'SCHEDULED';
+
+  useEffect(() => {
+    api.parcels
+      .getSlots()
+      .then((res) => {
+        setSlots(res.data.slots);
+        setFees(res.data.fees);
+      })
+      .catch((err) => {
+        setSlots([]);
+        setError(err.message || 'Could not load slots.');
+      });
+  }, []);
 
   const handleConfirm = async () => {
-    if (slots.length === 0) {
-      setError('No available slots today. Try again tomorrow.');
+    if (!slots || slots.length === 0) {
+      setError('No slots are available right now.');
       return;
     }
     setError(null);
@@ -142,7 +152,7 @@ const ScheduleModal: React.FC<{
         <div style={{ background: C.teal, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h2 style={{ fontFamily: 'Bricolage Grotesque, sans-serif', fontSize: 20, fontWeight: 800, color: C.white, margin: 0 }}>
-              Schedule Pickup
+              {isReschedule ? 'Reschedule' : 'Schedule Pickup'}
             </h2>
             <p style={{ fontSize: 12, color: `${C.sand}cc`, margin: '2px 0 0' }}>
               {parcel.courier} · Tower {parcel.flat.tower}-{parcel.flat.number}
@@ -161,13 +171,19 @@ const ScheduleModal: React.FC<{
             </div>
           )}
 
+          {isReschedule && (
+            <div style={{ padding: '10px 14px', background: C.amberLight, border: `1px solid ${C.amber}44`, borderRadius: 12, fontSize: 12, color: C.night }}>
+              You'll get a new 4-digit code. Your old code will stop working.
+            </div>
+          )}
+
           {/* Mode toggle */}
           <div>
             <p style={{ fontSize: 13, fontWeight: 700, color: C.night, marginBottom: 10 }}>How would you like to receive it?</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {([
-                { value: 'PICKUP', icon: '📦', label: 'Counter Pickup', sub: 'Free · Pick up at gate' },
-                { value: 'DOOR', icon: '🚪', label: 'Door Delivery', sub: '₹20 · Guard brings it up' },
+                { value: 'PICKUP', icon: '📦', label: 'Counter Pickup', sub: `${formatFee(fees.PICKUP)} · Pick up at gate` },
+                { value: 'DOOR', icon: '🚪', label: 'Door Delivery', sub: `${formatFee(fees.DOOR)} · Guard brings it up` },
               ] as const).map(({ value, icon, label, sub }) => (
                 <button
                   key={value}
@@ -190,31 +206,46 @@ const ScheduleModal: React.FC<{
           {/* Slot picker */}
           <div>
             <p style={{ fontSize: 13, fontWeight: 700, color: C.night, marginBottom: 10 }}>
-              Today's available slots
+              Pick a time slot (IST)
             </p>
-            {slots.length === 0 ? (
+            {slots === null ? (
+              <div style={{ padding: 16, textAlign: 'center', color: C.sage, fontSize: 13 }}>
+                <Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite', display: 'inline-block' }} /> Loading slots...
+              </div>
+            ) : slots.length === 0 ? (
               <div style={{ padding: 16, background: C.amberLight, borderRadius: 12, border: `1px solid ${C.amber}44`, textAlign: 'center' }}>
-                <p style={{ fontSize: 13, color: C.amber, fontWeight: 600 }}>No slots left for today.</p>
-                <p style={{ fontSize: 11, color: C.sage, marginTop: 4 }}>Slots reset tomorrow from 8:00 AM.</p>
+                <p style={{ fontSize: 13, color: C.amber, fontWeight: 600 }}>No slots available right now.</p>
+                <p style={{ fontSize: 11, color: C.sage, marginTop: 4 }}>Slots run 8:00 AM to 10:00 PM.</p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {slots.map((slot, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSlotIdx(i)}
-                    style={{
-                      padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                      border: `2px solid ${slotIdx === i ? C.coral : C.line}`,
-                      background: slotIdx === i ? `${C.coral}18` : C.mist,
-                      color: slotIdx === i ? C.coral : C.sage,
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {slot.label}
-                  </button>
-                ))}
-              </div>
+              (['today', 'tomorrow'] as const).map((day) => {
+                const daySlots = slots.map((s, i) => ({ s, i })).filter(({ s }) => s.day === day);
+                if (daySlots.length === 0) return null;
+                return (
+                  <div key={day} style={{ marginBottom: 10 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: C.sage, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                      {day === 'today' ? 'Today' : 'Tomorrow'}
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {daySlots.map(({ s: slot, i }) => (
+                        <button
+                          key={slot.start}
+                          onClick={() => setSlotIdx(i)}
+                          style={{
+                            padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                            border: `2px solid ${slotIdx === i ? C.coral : C.line}`,
+                            background: slotIdx === i ? `${C.coral}18` : C.mist,
+                            color: slotIdx === i ? C.coral : C.sage,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          {slot.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
 
@@ -223,15 +254,15 @@ const ScheduleModal: React.FC<{
             <span style={{ fontSize: 13, fontWeight: 600, color: C.night }}>
               {mode === 'DOOR' ? '🚪 Door Delivery fee' : '📦 Counter Pickup'}
             </span>
-            <span style={{ fontSize: 16, fontWeight: 800, color: mode === 'DOOR' ? C.coral : C.leaf }}>
-              {mode === 'DOOR' ? '₹20' : 'Free'}
+            <span style={{ fontSize: 16, fontWeight: 800, color: fees[mode] > 0 ? C.coral : C.leaf }}>
+              {formatFee(fees[mode])}
             </span>
           </div>
 
           {/* Confirm button */}
           <button
             onClick={handleConfirm}
-            disabled={isSubmitting || slots.length === 0}
+            disabled={isSubmitting || !slots || slots.length === 0}
             style={{
               padding: '14px 24px', background: isSubmitting ? `${C.coral}88` : C.coral,
               color: C.white, border: 'none', borderRadius: 14, fontFamily: 'Bricolage Grotesque, sans-serif',
@@ -246,7 +277,7 @@ const ScheduleModal: React.FC<{
                 Confirming slot...
               </>
             ) : (
-              'Confirm slot and get code'
+              isReschedule ? 'Confirm and get a new code' : 'Confirm slot and get code'
             )}
           </button>
         </div>
@@ -291,7 +322,7 @@ const StampCard: React.FC<{ stamp: HandoverStamp; onDismiss: () => void }> = ({ 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <Package style={{ width: 24, height: 24, color: C.coral }} />
             <span style={{ fontFamily: 'Bricolage Grotesque, sans-serif', fontSize: 18, fontWeight: 900, color: C.white, letterSpacing: '-0.02em' }}>
-              Thapal Handover Stamp
+              Parcelo Handover Stamp
             </span>
           </div>
           <div style={{ fontSize: 12, color: `${C.sand}cc`, display: 'flex', gap: 16 }}>
@@ -338,14 +369,14 @@ const StampCard: React.FC<{ stamp: HandoverStamp; onDismiss: () => void }> = ({ 
             </div>
             <div style={{ padding: '10px 12px', background: C.mist, borderRadius: 10, border: `1px solid ${C.line}` }}>
               <p style={{ fontSize: 10, color: C.sage, fontWeight: 600, marginBottom: 2 }}>FEE</p>
-              <p style={{ fontSize: 13, fontWeight: 800, color: stamp.fee > 0 ? C.coral : C.leaf }}>
-                {stamp.fee > 0 ? `₹${stamp.fee}` : 'Free'}
+              <p style={{ fontSize: 13, fontWeight: 800, color: stamp.feePaise > 0 ? C.coral : C.leaf }}>
+                {formatFee(stamp.feePaise)}
               </p>
             </div>
             <div style={{ padding: '10px 12px', background: C.mist, borderRadius: 10, border: `1px solid ${C.line}`, gridColumn: '1 / -1' }}>
               <p style={{ fontSize: 10, color: C.sage, fontWeight: 600, marginBottom: 2 }}>SLOT</p>
               <p style={{ fontSize: 13, color: C.night, fontWeight: 800 }}>
-                Today, {fmtTime(stamp.slotStart)} – {fmtTime(stamp.slotEnd)}
+                {fmtDay(stamp.slotStart)}, {fmtTime(stamp.slotStart)} – {fmtTime(stamp.slotEnd)}
               </p>
             </div>
           </div>
@@ -435,8 +466,8 @@ const ParcelCard: React.FC<{
         {/* Arrived / slot info */}
         <div style={{ fontSize: 12, color: C.sage, display: 'flex', gap: 16, marginBottom: 14 }}>
           <span>📅 Arrived {fmtDate(parcel.loggedAt)}</span>
-          {parcel.handover?.slotStart && (
-            <span>🕐 Slot {fmtTime(parcel.handover.slotStart)}–{fmtTime(parcel.handover.slotEnd!)}</span>
+          {parcel.status === 'SCHEDULED' && parcel.handover?.slotStart && (
+            <span>🕐 {fmtDay(parcel.handover.slotStart)} {fmtTime(parcel.handover.slotStart)}–{fmtTime(parcel.handover.slotEnd!)}</span>
           )}
           {parcel.handover?.completedAt && (
             <span style={{ color: C.leaf }}>✅ Received {fmtDate(parcel.handover.completedAt)}</span>
@@ -454,7 +485,7 @@ const ParcelCard: React.FC<{
         )}
 
         {/* Action buttons */}
-        {parcel.status === 'LOGGED' && (
+        {(parcel.status === 'LOGGED' || parcel.status === 'UNCLAIMED') && (
           <button
             onClick={() => onSchedule(parcel)}
             style={{
@@ -488,6 +519,12 @@ const ParcelCard: React.FC<{
             <span style={{ fontSize: 13, fontWeight: 700, color: C.leaf }}>
               Parcel received — {parcel.handover?.completedAt ? fmtDateTime(parcel.handover.completedAt) : 'today'}
             </span>
+          </div>
+        )}
+
+        {parcel.status === 'RETURNED' && (
+          <div style={{ padding: '10px 14px', background: C.mist, border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 13, fontWeight: 600, color: C.sage }}>
+            ↩️ Returned to the courier by the gate. Contact the courier to redeliver.
           </div>
         )}
       </div>
@@ -541,17 +578,16 @@ export const ResidentPage: React.FC = () => {
       setParcels((prev) => prev.map((p) => (p.id === parcel.id ? { ...p, ...parcel } : p)));
     };
 
-    socket.off('parcel:new', onNew);
-    socket.off('parcel:scheduled', onScheduled);
-    socket.off('parcel:handed_over', onHandedOver);
     socket.on('parcel:new', onNew);
     socket.on('parcel:scheduled', onScheduled);
     socket.on('parcel:handed_over', onHandedOver);
+    socket.on('parcel:returned', onHandedOver);
 
     return () => {
       socket.off('parcel:new', onNew);
       socket.off('parcel:scheduled', onScheduled);
       socket.off('parcel:handed_over', onHandedOver);
+      socket.off('parcel:returned', onHandedOver);
     };
   }, [socket]);
 
@@ -562,7 +598,7 @@ export const ResidentPage: React.FC = () => {
     setParcels((prev) =>
       prev.map((p) =>
         p.id === stamp.parcelId
-          ? { ...p, status: 'SCHEDULED', handover: { mode: stamp.mode, slotStart: stamp.slotStart, slotEnd: stamp.slotEnd, fee: stamp.fee } }
+          ? { ...p, status: 'SCHEDULED', handover: { mode: stamp.mode, slotStart: stamp.slotStart, slotEnd: stamp.slotEnd, feePaise: stamp.feePaise } }
           : p
       )
     );
@@ -689,7 +725,7 @@ export const ResidentPage: React.FC = () => {
       <div style={{ padding: '12px 16px', background: `${C.teal}0a`, borderRadius: 12, border: `1px solid ${C.teal}22`, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         <Truck style={{ width: 16, height: 16, color: C.teal, flexShrink: 0, marginTop: 1 }} />
         <p style={{ fontSize: 12, color: C.sage, margin: 0 }}>
-          <strong style={{ color: C.teal }}>How it works:</strong> When a parcel arrives, tap "Schedule Pickup" to choose counter pickup (free) or door delivery (₹20). You'll get a 4-digit code to show the guard.
+          <strong style={{ color: C.teal }}>How it works:</strong> When a parcel arrives, tap "Schedule Pickup" to choose free counter pickup or paid door delivery. You'll get a 4-digit code to show the guard.
         </p>
       </div>
 
@@ -722,11 +758,11 @@ export const ResidentPage: React.FC = () => {
             <p style={{ fontSize: 13, color: C.sage, marginBottom: 16, lineHeight: 1.6 }}>
               Your 4-digit code was shown when you first scheduled this parcel.
               {viewCodeParcel.handover?.slotStart && (
-                <> Your slot is today {fmtTime(viewCodeParcel.handover.slotStart)}–{fmtTime(viewCodeParcel.handover.slotEnd!)}.</>
+                <> Your slot is {fmtDay(viewCodeParcel.handover.slotStart).toLowerCase()}, {fmtTime(viewCodeParcel.handover.slotStart)}–{fmtTime(viewCodeParcel.handover.slotEnd!)}.</>
               )}
             </p>
             <p style={{ fontSize: 13, color: C.sage, marginBottom: 20, lineHeight: 1.6 }}>
-              If you've lost the code, you can reschedule to generate a new one.
+              Lost it, or it was locked or expired? Reschedule to get a new code. The old one will stop working.
             </p>
             <div style={{ display: 'flex', gap: 10 }}>
               <button

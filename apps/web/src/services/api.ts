@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL } from '../config';
 
 export class ApiError extends Error {
   code: string;
@@ -15,7 +15,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('thapal_token');
+  const token = localStorage.getItem('parcelo_token');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -110,19 +110,35 @@ export const api = {
           mode: 'PICKUP' | 'DOOR';
           slotStart: string;
           slotEnd: string;
-          fee: number;
+          feePaise: number;
           code: string;
           expiresAt: string;
+          rescheduled: boolean;
         };
       }>(`/parcels/${id}/schedule`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
 
-    uploadPhoto: (image: string, filename?: string) =>
+    getSlots: () =>
+      request<{
+        success: boolean;
+        data: {
+          slots: { start: string; end: string; day: 'today' | 'tomorrow'; label: string }[];
+          fees: { PICKUP: number; DOOR: number };
+        };
+      }>('/parcels/slots'),
+
+    returnParcel: (id: string) =>
+      request<{ success: boolean; message: string; data: any }>(`/parcels/${id}/return`, {
+        method: 'POST',
+      }),
+
+    /** image: a data:image/jpeg|png|webp;base64,... URL, at most 5 MB decoded */
+    uploadPhoto: (image: string) =>
       request<{ success: boolean; photoUrl: string }>('/parcels/upload-photo', {
         method: 'POST',
-        body: JSON.stringify({ image, filename }),
+        body: JSON.stringify({ image }),
       }),
   },
 
@@ -130,4 +146,67 @@ export const api = {
     getFlats: () =>
       request<{ success: boolean; count: number; data: any[] }>('/flats'),
   },
+
+  admin: {
+    getStats: () => request<{ success: boolean; data: AdminStats }>('/admin/stats'),
+
+    listFlats: () => request<{ success: boolean; data: AdminFlat[] }>('/admin/flats'),
+    createFlat: (body: { tower: string; number: string }) =>
+      request<{ success: boolean; data: AdminFlat }>('/admin/flats', { method: 'POST', body: JSON.stringify(body) }),
+    deleteFlat: (id: string) => request<{ success: boolean }>(`/admin/flats/${id}`, { method: 'DELETE' }),
+
+    listUsers: () => request<{ success: boolean; data: AdminUser[] }>('/admin/users'),
+    createUser: (body: { name: string; phone: string; role: Role; flatId?: string | null }) =>
+      request<{ success: boolean; data: AdminUser }>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    updateUser: (id: string, body: { name?: string; role?: Role; flatId?: string | null }) =>
+      request<{ success: boolean; data: AdminUser }>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteUser: (id: string) => request<{ success: boolean }>(`/admin/users/${id}`, { method: 'DELETE' }),
+
+    importResidents: (body: { csv: string; createMissingFlats: boolean; dryRun: boolean }) =>
+      request<{ success: boolean; data: { dryRun: boolean; rows: number; residents: number; newFlats: number } }>(
+        '/admin/residents/import',
+        { method: 'POST', body: JSON.stringify(body) }
+      ),
+  },
 };
+
+export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN';
+
+export interface AdminStats {
+  parcels: {
+    byStatus: Record<'LOGGED' | 'SCHEDULED' | 'HANDED_OVER' | 'UNCLAIMED' | 'RETURNED', number>;
+    inRoom: number;
+    overdue: number;
+    loggedToday: number;
+    handedOverToday: number;
+  };
+  doorDeliveriesThisMonth: { count: number; feesPaise: number };
+  people: { flats: number; residents: number; guards: number; admins: number };
+  overdueParcels: {
+    id: string;
+    courier: string;
+    status: string;
+    loggedAt: string;
+    daysInRoom: number;
+    flat: { id: string; label: string };
+    handover: { mode: 'PICKUP' | 'DOOR'; slotStart: string; slotEnd: string } | null;
+  }[];
+}
+
+export interface AdminFlat {
+  id: string;
+  tower: string;
+  number: string;
+  label: string;
+  residents?: { id: string; name: string; phone: string }[];
+  parcelsInRoom?: number;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  phone: string;
+  role: Role;
+  flatId: string | null;
+  flatLabel?: string | null;
+}

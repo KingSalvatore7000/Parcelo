@@ -31,7 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('thapal_token'));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('parcelo_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -58,22 +58,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithOtp = async (phone: string, otp: string): Promise<User> => {
     const res = await api.auth.verifyOtp(phone, otp);
     const { token: newToken, user: userData } = res.data;
-    localStorage.setItem('thapal_token', newToken);
+    localStorage.setItem('parcelo_token', newToken);
     setToken(newToken);
     setUser(userData);
     return userData;
   };
 
   const quickLogin = async (phone: string): Promise<User> => {
-    // 1. Request OTP (in dev defaults to 123456)
+    // Demo only: works when the API runs in development and returns the OTP
     const reqRes = await api.auth.requestOtp(phone);
-    const otp = reqRes.devOtp || '123456';
+    const otp = reqRes.devOtp;
+    if (!otp) {
+      throw new Error('Quick login needs the API running in development mode.');
+    }
     // 2. Verify OTP
     return loginWithOtp(phone, otp);
   };
 
   const logout = () => {
-    localStorage.removeItem('thapal_token');
+    localStorage.removeItem('parcelo_token');
     setToken(null);
     setUser(null);
   };

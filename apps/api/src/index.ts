@@ -1,48 +1,67 @@
 import http from 'http';
-import path from 'path';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { Server as SocketIOServer } from 'socket.io';
+import { UserRole } from '@parcelo/shared';
 import { config } from './config/env';
 import { authRoutes } from './modules/auth/auth.routes';
 import { parcelRoutes } from './modules/parcels/parcels.routes';
 import { flatRoutes } from './modules/flats/flats.routes';
+import { adminRoutes } from './modules/admin/admin.routes';
 import { errorHandler } from './middleware/errorHandler';
+import { resolveAuthUser, AuthUserPayload } from './middleware/auth';
 import { prisma } from './lib/prisma';
-import { initSocketService } from './services/socket.service';
+import { initSocketService, guardRoom, flatRoom } from './services/socket.service';
+import { UPLOAD_ROOT, MAX_UPLOAD_JSON } from './services/storage.service';
 
 const app = express();
 const server = http.createServer(app);
 
-// Configure Socket.io with CORS
-export const io = new SocketIOServer(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-  },
-});
+if (config.trustProxy > 0) {
+  // Lets rate limiting see the real client IP behind a reverse proxy
+  app.set('trust proxy', config.trustProxy);
+}
 
-// Initialize socket service broadcast helper
-initSocketService(io);
-
-// Middleware
-app.use(cors({
-  origin: [
-    'https://parceloo.onrender.com',
-    'http://localhost:5173'
-  ],
+// Only the configured web origins may call the API or open a socket
+const corsOptions = {
+  origin: config.corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+};
 
-// Static file serving for parcel photos
-app.use('/uploads', express.static(path.resolve(__dirname, '../../uploads')));
+export const io = new SocketIOServer(server, {
+  cors: { ...corsOptions, methods: ['GET', 'POST'] },
+});
+
+initSocketService(io);
+
+// Security headers. Parcel photos are loaded by the web app from another port or
+// subdomain, which is same-site, so allow same-site embedding of resources.
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
+app.use(cors(corsOptions));
+
+// Photo uploads carry a base64 image; everything else is small JSON
+app.use('/parcels/upload-photo', express.json({ limit: MAX_UPLOAD_JSON }));
+app.use('/admin/residents/import', express.json({ limit: '400kb' }));
+app.use(express.json({ limit: '100kb' }));
+
+// Parcel photos: random file names, image types only (enforced at upload), never sniffed
+app.use(
+  '/uploads',
+  express.static(UPLOAD_ROOT, {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'");
+    },
+  })
+);
 
 // Request logging in development
-if (config.nodeEnv === 'development') {
+if (config.isDev) {
   app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
@@ -52,32 +71,28 @@ if (config.nodeEnv === 'development') {
 // Root endpoint
 app.get('/', (req, res) => {
   res.status(200).json({
-    name: 'Thapal API Server',
+    name: 'Parcelo API Server',
     status: 'online',
-    version: '1.0.0',
-    webAppUrl: 'http://localhost:5173',
     healthCheck: '/health',
-    message: 'Welcome to Thapal API. The Guard Desk and Web UI runs at http://localhost:5173',
   });
 });
 
-// Health check endpoint
+// Health check endpoint (no internal error details)
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
       status: 'ok',
-      service: 'thapal-api',
-      environment: config.nodeEnv,
+      service: 'parcelo-api',
       timestamp: new Date().toISOString(),
       database: 'connected',
     });
-  } catch (err: any) {
+  } catch (err) {
+    console.error('Health check: database unreachable', err);
     res.status(503).json({
       status: 'degraded',
-      service: 'thapal-api',
+      service: 'parcelo-api',
       database: 'disconnected',
-      error: err.message,
     });
   }
 });
@@ -86,32 +101,37 @@ app.get('/health', async (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/parcels', parcelRoutes);
 app.use('/flats', flatRoutes);
+app.use('/admin', adminRoutes);
 
-// Socket.io connection handling
+// Sockets must present a valid token; rooms are chosen by the server from the user record
+io.use(async (socket, next) => {
+  try {
+    const user = await resolveAuthUser(socket.handshake.auth?.token);
+    if (!user) {
+      next(new Error('UNAUTHORIZED'));
+      return;
+    }
+    socket.data.user = user;
+    next();
+  } catch (err) {
+    next(new Error('UNAUTHORIZED'));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log(`⚡ Socket connected: ${socket.id}`);
+  const user = socket.data.user as AuthUserPayload;
 
-  // Client joins society guard room (for gate guards)
-  socket.on('join:guard', (societyId: string) => {
-    if (societyId) {
-      const room = `society:${societyId}:guards`;
-      socket.join(room);
-      console.log(`🛡️ Socket ${socket.id} joined guard room: ${room}`);
-    }
-  });
+  if (user.role === UserRole.GUARD || user.role === UserRole.ADMIN) {
+    socket.join(guardRoom(user.societyId));
+  }
+  if (user.flatId) {
+    socket.join(flatRoom(user.societyId, user.flatId));
+  }
 
-  // Client joins flat room (for residents of that flat)
-  socket.on('join:flat', ({ societyId, flatId }: { societyId: string; flatId: string }) => {
-    if (societyId && flatId) {
-      const room = `society:${societyId}:flat:${flatId}`;
-      socket.join(room);
-      console.log(`🏠 Socket ${socket.id} joined flat room: ${room}`);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`🔌 Socket disconnected: ${socket.id}`);
-  });
+  if (config.isDev) {
+    console.log(`⚡ Socket connected: ${socket.id} (${user.role} ${user.id})`);
+    socket.on('disconnect', () => console.log(`🔌 Socket disconnected: ${socket.id}`));
+  }
 });
 
 // Global error handler
@@ -120,20 +140,23 @@ app.use(errorHandler);
 // Start server
 server.listen(config.port, () => {
   console.log('========================================================');
-  console.log(`🚀 Thapal API Server running at http://localhost:${config.port}`);
+  console.log(`🚀 Parcelo API Server running at http://localhost:${config.port}`);
   console.log(`📦 Environment: ${config.nodeEnv}`);
-  console.log(`⚡ Socket.io real-time engine ready`);
+  console.log(`🌐 Allowed origins: ${config.corsOrigin.join(', ')}`);
   console.log('========================================================');
 });
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
+async function shutdown() {
   console.log('\nGracefully shutting down...');
+  io.close();
   await prisma.$disconnect();
   server.close(() => {
     console.log('Server stopped.');
     process.exit(0);
   });
-});
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 export { app, server };

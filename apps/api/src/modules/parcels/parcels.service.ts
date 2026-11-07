@@ -1,9 +1,53 @@
-import { ParcelStatus, UserRole, HandoverMode } from '@thapal/shared';
+import { Prisma } from '@prisma/client';
+import { ParcelStatus, UserRole, HandoverMode } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
+import { config } from '../../config/env';
 import { generate4DigitCode, hashCode, verifyCode } from '../../utils/crypto';
 import { socketService } from '../../services/socket.service';
+import { availableSlots, findSlot, CODE_GRACE_MS } from './slots';
+
+const MAX_CODE_ATTEMPTS = 5;
+const DEFAULT_LIST_LIMIT = 100;
+const MAX_LIST_LIMIT = 200;
+
+/** Statuses from which a resident may (re)book a slot */
+const SCHEDULABLE: ParcelStatus[] = [ParcelStatus.LOGGED, ParcelStatus.SCHEDULED, ParcelStatus.UNCLAIMED];
+/** Statuses from which the gate may send a parcel back to the courier */
+const RETURNABLE: ParcelStatus[] = [ParcelStatus.LOGGED, ParcelStatus.SCHEDULED, ParcelStatus.UNCLAIMED];
+
+/** Everything a client may see about a parcel. Never includes the code hash. */
+const parcelView = {
+  flat: true,
+  loggedBy: { select: { id: true, name: true, role: true } },
+  handover: {
+    select: {
+      id: true,
+      parcelId: true,
+      mode: true,
+      slotStart: true,
+      slotEnd: true,
+      otpAttempts: true,
+      otpExpiresAt: true,
+      feePaise: true,
+      completedAt: true,
+      completedById: true,
+      completedBy: { select: { id: true, name: true } },
+    },
+  },
+} satisfies Prisma.ParcelInclude;
+
+type AppError = { status: number; code: string; message: string };
+const fail = (status: number, code: string, message: string): AppError => ({ status, code, message });
+
+export function feeForMode(mode: HandoverMode): number {
+  return mode === HandoverMode.DOOR ? config.doorDeliveryFeePaise : 0;
+}
 
 export class ParcelsService {
+  private loadView(id: string) {
+    return prisma.parcel.findUniqueOrThrow({ where: { id }, include: parcelView });
+  }
+
   /**
    * Guard logs an incoming parcel
    */
@@ -14,23 +58,14 @@ export class ParcelsService {
     photoUrl?: string | null;
     guardId: string;
   }) {
-    // 1. Verify flat exists in guard's society
     const flat = await prisma.flat.findFirst({
-      where: {
-        id: data.flatId,
-        societyId: data.societyId,
-      },
+      where: { id: data.flatId, societyId: data.societyId },
+      include: { users: { select: { id: true } } },
     });
-
     if (!flat) {
-      throw {
-        status: 404,
-        code: 'FLAT_NOT_FOUND',
-        message: 'The selected flat was not found in your society.',
-      };
+      throw fail(404, 'FLAT_NOT_FOUND', 'The selected flat was not found in your society.');
     }
 
-    // 2. Create Parcel in DB
     const parcel = await prisma.parcel.create({
       data: {
         societyId: data.societyId,
@@ -40,52 +75,31 @@ export class ParcelsService {
         status: ParcelStatus.LOGGED,
         loggedById: data.guardId,
       },
-      include: {
-        flat: true,
-        loggedBy: {
-          select: {
-            id: true,
-            name: true,
-            role: true,
-          },
-        },
-        handover: true,
-      },
+      include: parcelView,
     });
 
-    // 3. Emit real-time WebSocket events
-    // Notify all guards on duty
-    socketService.emitToGuards(data.societyId, 'parcel:logged', parcel);
-    // Notify residents of this flat
-    socketService.emitToFlat(data.societyId, data.flatId, 'parcel:new', parcel);
-
-    console.log(`📦 Parcel logged: [${parcel.courier}] for Flat Tower ${flat.tower}-${flat.number} by Guard ${parcel.loggedBy.name}`);
-
-    // Audit notification entry in DB
-    const flatResidents = await prisma.user.findMany({
-      where: { flatId: data.flatId },
-    });
-
-    for (const resident of flatResidents) {
-      await prisma.notification.create({
-        data: {
-          userId: resident.id,
+    // Queue one notification per resident of the flat. They stay PENDING until a
+    // delivery channel (push / WhatsApp / SMS) actually sends them.
+    if (flat.users.length > 0) {
+      await prisma.notification.createMany({
+        data: flat.users.map((u) => ({
+          userId: u.id,
           parcelId: parcel.id,
-          channel: 'PUSH',
-          status: 'SENT',
-          sentAt: new Date(),
+          channel: 'PUSH' as const,
+          status: 'PENDING' as const,
           metadata: `New ${parcel.courier} parcel received at society gate`,
-        },
+        })),
       });
-
-      console.log(`🔔 [PUSH NOTIFICATION] To ${resident.name} (${resident.phone}): A new ${parcel.courier} parcel has arrived at the gate!`);
     }
+
+    socketService.emitToGuards(data.societyId, 'parcel:logged', parcel);
+    socketService.emitToFlat(data.societyId, data.flatId, 'parcel:new', parcel);
 
     return parcel;
   }
 
   /**
-   * List parcels scoped by role and societyId
+   * List parcels scoped by role and societyId, newest first, capped
    */
   async getParcels(params: {
     societyId: string;
@@ -94,255 +108,70 @@ export class ParcelsService {
     userFlatId?: string | null;
     status?: ParcelStatus;
     search?: string;
+    limit?: number;
   }) {
-    const whereClause: any = {
-      societyId: params.societyId,
-    };
+    const where: Prisma.ParcelWhereInput = { societyId: params.societyId };
 
-    // Role-based access control
     if (params.userRole === UserRole.RESIDENT) {
       if (!params.userFlatId) {
-        throw {
-          status: 400,
-          code: 'NO_FLAT_ASSIGNED',
-          message: 'No flat is associated with your resident profile.',
-        };
+        throw fail(400, 'NO_FLAT_ASSIGNED', 'No flat is associated with your resident profile.');
       }
-      whereClause.flatId = params.userFlatId;
+      where.flatId = params.userFlatId;
     }
 
-    // Optional status filter
     if (params.status) {
-      whereClause.status = params.status;
+      if (!Object.values(ParcelStatus).includes(params.status)) {
+        throw fail(400, 'INVALID_STATUS', 'Unknown parcel status filter.');
+      }
+      where.status = params.status;
     }
 
-    // Optional search by courier or flat number
     if (params.search && params.search.trim()) {
-      const q = params.search.trim();
-      whereClause.OR = [
+      const q = params.search.trim().slice(0, 50);
+      where.OR = [
         { courier: { contains: q, mode: 'insensitive' } },
         { flat: { number: { contains: q, mode: 'insensitive' } } },
         { flat: { tower: { contains: q, mode: 'insensitive' } } },
       ];
     }
 
-    const parcels = await prisma.parcel.findMany({
-      where: whereClause,
-      include: {
-        flat: true,
-        loggedBy: {
-          select: {
-            id: true,
-            name: true,
-            role: true,
-          },
-        },
-        handover: {
-          select: {
-            id: true,
-            parcelId: true,
-            mode: true,
-            slotStart: true,
-            slotEnd: true,
-            otpAttempts: true,
-            fee: true,
-            completedAt: true,
-            completedById: true,
-            completedBy: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { loggedAt: 'desc' },
-    });
+    const take = Math.min(Math.max(params.limit ?? DEFAULT_LIST_LIMIT, 1), MAX_LIST_LIMIT);
 
-    return parcels;
+    return prisma.parcel.findMany({
+      where,
+      include: parcelView,
+      orderBy: { loggedAt: 'desc' },
+      take,
+    });
   }
 
   /**
    * Get single parcel by ID
    */
   async getParcelById(id: string, societyId: string) {
-    const parcel = await prisma.parcel.findFirst({
-      where: { id, societyId },
-      include: {
-        flat: true,
-        loggedBy: {
-          select: {
-            id: true,
-            name: true,
-            role: true,
-          },
-        },
-        handover: {
-          select: {
-            id: true,
-            parcelId: true,
-            mode: true,
-            slotStart: true,
-            slotEnd: true,
-            otpAttempts: true,
-            fee: true,
-            completedAt: true,
-            completedById: true,
-            completedBy: {
-              select: { id: true, name: true },
-            },
-          },
-        },
-      },
-    });
-
+    const parcel = await prisma.parcel.findFirst({ where: { id, societyId }, include: parcelView });
     if (!parcel) {
-      throw {
-        status: 404,
-        code: 'PARCEL_NOT_FOUND',
-        message: 'Parcel not found.',
-      };
+      throw fail(404, 'PARCEL_NOT_FOUND', 'Parcel not found.');
     }
-
     return parcel;
   }
 
   /**
-   * Guard completes handover with 4-digit code
+   * Bookable handover slots and fees (paise)
    */
-  async completeHandover(parcelId: string, societyId: string, guardId: string, code: string) {
-    const parcel = await prisma.parcel.findFirst({
-      where: { id: parcelId, societyId },
-      include: {
-        flat: true,
-        handover: true,
-      },
-    });
-
-    if (!parcel) {
-      throw {
-        status: 404,
-        code: 'PARCEL_NOT_FOUND',
-        message: 'Parcel not found in your society.',
-      };
-    }
-
-    if (parcel.status === ParcelStatus.HANDED_OVER) {
-      throw {
-        status: 400,
-        code: 'ALREADY_HANDED_OVER',
-        message: `This parcel has already been handed over on ${parcel.handover?.completedAt ? new Date(parcel.handover.completedAt).toLocaleString('en-IN') : 'an earlier date'}.`,
-      };
-    }
-
-    if (!parcel.handover) {
-      throw {
-        status: 400,
-        code: 'NOT_SCHEDULED',
-        message: 'Resident has not scheduled this parcel yet. Ask resident to confirm mode (Pickup / Door Delivery) on their app to generate the 4-digit code.',
-      };
-    }
-
-    const { handover } = parcel;
-
-    // Check attempts lockout
-    if (handover.otpAttempts >= 5) {
-      throw {
-        status: 429,
-        code: 'CODE_LOCKED',
-        message: 'This handover code has been locked due to 5 consecutive incorrect attempts. The resident must re-generate a code from their Thapal app.',
-      };
-    }
-
-    // Check expiry
-    if (new Date() > handover.otpExpiresAt) {
-      throw {
-        status: 400,
-        code: 'CODE_EXPIRED',
-        message: 'The handover code has expired. The resident must confirm a new slot from their app.',
-      };
-    }
-
-    // Verify 4-digit code against salted bcrypt hash
-    const isValid = await verifyCode(code.trim(), handover.otpHash);
-
-    if (!isValid) {
-      const updatedAttempts = handover.otpAttempts + 1;
-      await prisma.handover.update({
-        where: { id: handover.id },
-        data: { otpAttempts: updatedAttempts },
-      });
-
-      const remaining = 5 - updatedAttempts;
-      throw {
-        status: 400,
-        code: 'INVALID_HANDOVER_CODE',
-        message: `Incorrect 4-digit handover code. ${remaining > 0 ? `${remaining} attempts remaining before lockout.` : 'Code is now locked. Resident must generate a new code.'}`,
-      };
-    }
-
-    // Code is valid! Mark parcel as HANDED_OVER
-    const now = new Date();
-
-    const [updatedParcel] = await prisma.$transaction([
-      prisma.parcel.update({
-        where: { id: parcel.id },
-        data: {
-          status: ParcelStatus.HANDED_OVER,
-        },
-        include: {
-          flat: true,
-          loggedBy: {
-            select: { id: true, name: true },
-          },
-          handover: {
-            include: {
-              completedBy: {
-                select: { id: true, name: true },
-              },
-            },
-          },
-        },
-      }),
-      prisma.handover.update({
-        where: { id: handover.id },
-        data: {
-          completedAt: now,
-          completedById: guardId,
-        },
-      }),
-    ]);
-
-    // Fetch guard's name for complete record
-    const guardUser = await prisma.user.findUnique({
-      where: { id: guardId },
-      select: { id: true, name: true },
-    });
-
-    const handoverRecord = {
-      ...updatedParcel,
-      status: ParcelStatus.HANDED_OVER,
-      handover: {
-        ...updatedParcel.handover,
-        completedAt: now,
-        completedById: guardId,
-        completedBy: guardUser,
+  getSlotOptions() {
+    return {
+      slots: availableSlots(),
+      fees: {
+        [HandoverMode.PICKUP]: feeForMode(HandoverMode.PICKUP),
+        [HandoverMode.DOOR]: feeForMode(HandoverMode.DOOR),
       },
     };
-
-    // Broadcast real-time handover events
-    socketService.emitToGuards(societyId, 'parcel:handed_over', handoverRecord);
-    socketService.emitToFlat(societyId, parcel.flatId, 'parcel:handed_over', handoverRecord);
-
-    console.log(`🤝 Handover COMPLETED: Parcel [${parcel.courier}] for Flat Tower ${parcel.flat.tower}-${parcel.flat.number} handed over by Guard ${guardUser?.name || guardId}`);
-
-    return handoverRecord;
   }
 
   /**
-   * Resident schedules a parcel for pickup or door delivery.
-   * Generates a 4-digit code, hashes and stores it, returns plaintext once.
+   * Resident schedules (or reschedules) a parcel for pickup or door delivery.
+   * Each call issues a fresh 4-digit code and invalidates any earlier one.
    */
   async scheduleParcel(params: {
     parcelId: string;
@@ -350,95 +179,191 @@ export class ParcelsService {
     userId: string;
     userFlatId: string;
     mode: HandoverMode;
-    slotStart: string; // ISO date string
-    slotEnd: string;   // ISO date string
+    slotStart: string;
+    slotEnd: string;
   }) {
-    // 1. Fetch parcel and verify ownership
     const parcel = await prisma.parcel.findFirst({
       where: { id: params.parcelId, societyId: params.societyId },
       include: { flat: true },
     });
 
     if (!parcel) {
-      throw { status: 404, code: 'PARCEL_NOT_FOUND', message: 'Parcel not found.' };
+      throw fail(404, 'PARCEL_NOT_FOUND', 'Parcel not found.');
     }
-
     if (parcel.flatId !== params.userFlatId) {
-      throw { status: 403, code: 'FORBIDDEN', message: 'This parcel is not addressed to your flat.' };
+      throw fail(403, 'FORBIDDEN', 'This parcel is not addressed to your flat.');
     }
-
     if (parcel.status === ParcelStatus.HANDED_OVER) {
-      throw { status: 400, code: 'ALREADY_HANDED_OVER', message: 'This parcel has already been handed over.' };
+      throw fail(400, 'ALREADY_HANDED_OVER', 'This parcel has already been handed over.');
+    }
+    if (parcel.status === ParcelStatus.RETURNED) {
+      throw fail(400, 'RETURNED', 'This parcel was returned to the courier.');
     }
 
-    if (parcel.status === ParcelStatus.SCHEDULED) {
-      throw { status: 400, code: 'ALREADY_SCHEDULED', message: 'This parcel already has a scheduled slot. Cancel first or wait for the current code to expire.' };
+    const slot = findSlot(params.slotStart, params.slotEnd);
+    if (!slot) {
+      throw fail(400, 'INVALID_SLOT', 'That time slot is not available. Please pick one of the listed slots.');
     }
 
-    // 2. Generate 4-digit plaintext code
     const plainCode = generate4DigitCode();
     const otpHash = await hashCode(plainCode);
-    const otpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const slotStart = new Date(slot.start);
+    const slotEnd = new Date(slot.end);
+    const otpExpiresAt = new Date(slotEnd.getTime() + CODE_GRACE_MS);
+    const feePaise = feeForMode(params.mode);
+    const rescheduled = parcel.status === ParcelStatus.SCHEDULED;
 
-    // 3. Calculate fee: DOOR = ₹20, PICKUP = free
-    const fee = params.mode === HandoverMode.DOOR ? 20 : 0;
-
-    // 4. Upsert handover record and update parcel status (transaction)
-    const [updatedParcel] = await prisma.$transaction([
-      prisma.parcel.update({
-        where: { id: parcel.id },
+    await prisma.$transaction(async (tx) => {
+      // Conditional on status, so a parcel handed over or returned meanwhile is not reopened
+      const moved = await tx.parcel.updateMany({
+        where: { id: parcel.id, status: { in: SCHEDULABLE } },
         data: { status: ParcelStatus.SCHEDULED },
-        include: {
-          flat: true,
-          loggedBy: { select: { id: true, name: true, role: true } },
-          handover: true,
-        },
-      }),
-      prisma.handover.upsert({
+      });
+      if (moved.count === 0) {
+        throw fail(409, 'STATUS_CHANGED', 'This parcel was just updated at the gate. Refresh and try again.');
+      }
+      const handoverData = {
+        mode: params.mode,
+        slotStart,
+        slotEnd,
+        feePaise,
+        otpHash,
+        otpAttempts: 0,
+        otpExpiresAt,
+        completedAt: null,
+        completedById: null,
+      };
+      await tx.handover.upsert({
         where: { parcelId: parcel.id },
-        create: {
-          parcelId: parcel.id,
-          mode: params.mode,
-          slotStart: new Date(params.slotStart),
-          slotEnd: new Date(params.slotEnd),
-          fee,
-          otpHash,
-          otpAttempts: 0,
-          otpExpiresAt,
-        },
-        update: {
-          mode: params.mode,
-          slotStart: new Date(params.slotStart),
-          slotEnd: new Date(params.slotEnd),
-          fee,
-          otpHash,
-          otpAttempts: 0,
-          otpExpiresAt,
-          completedAt: null,
-          completedById: null,
-        },
-      }),
-    ]);
+        create: { parcelId: parcel.id, ...handoverData },
+        update: handoverData,
+      });
+    });
 
-    // 5. Emit socket events to guards and this flat
-    const eventPayload = { ...updatedParcel, handover: { ...updatedParcel.handover, mode: params.mode } };
-    socketService.emitToGuards(params.societyId, 'parcel:scheduled', eventPayload);
-    socketService.emitToFlat(params.societyId, parcel.flatId, 'parcel:scheduled', eventPayload);
+    const view = await this.loadView(parcel.id);
+    socketService.emitToGuards(params.societyId, 'parcel:scheduled', view);
+    socketService.emitToFlat(params.societyId, parcel.flatId, 'parcel:scheduled', view);
 
-    console.log(`📅 Parcel scheduled: [${parcel.courier}] → Flat ${parcel.flat.tower}-${parcel.flat.number} | Mode: ${params.mode} | Slot: ${params.slotStart} | Fee: ₹${fee}`);
-
-    // 6. Return stamp DTO — plain code returned ONCE here
+    // The plain code is returned once, here, and never stored
     return {
       parcelId: parcel.id,
       courier: parcel.courier,
       flat: `Tower ${parcel.flat.tower} - ${parcel.flat.number}`,
       mode: params.mode,
-      slotStart: params.slotStart,
-      slotEnd: params.slotEnd,
-      fee,
-      code: plainCode,           // ← 4-digit code, plaintext, returned ONCE
+      slotStart: slot.start,
+      slotEnd: slot.end,
+      feePaise,
+      code: plainCode,
       expiresAt: otpExpiresAt.toISOString(),
+      rescheduled,
     };
+  }
+
+  /**
+   * Guard completes handover with the resident's 4-digit code
+   */
+  async completeHandover(parcelId: string, societyId: string, guardId: string, code: string) {
+    const parcel = await prisma.parcel.findFirst({
+      where: { id: parcelId, societyId },
+      include: { handover: true },
+    });
+
+    if (!parcel) {
+      throw fail(404, 'PARCEL_NOT_FOUND', 'Parcel not found in your society.');
+    }
+    if (parcel.status === ParcelStatus.HANDED_OVER) {
+      const when = parcel.handover?.completedAt
+        ? new Date(parcel.handover.completedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : 'an earlier date';
+      throw fail(400, 'ALREADY_HANDED_OVER', `This parcel has already been handed over on ${when}.`);
+    }
+    if (parcel.status === ParcelStatus.RETURNED) {
+      throw fail(400, 'RETURNED', 'This parcel was returned to the courier.');
+    }
+    if (parcel.status !== ParcelStatus.SCHEDULED || !parcel.handover) {
+      throw fail(400, 'NOT_SCHEDULED', 'The resident has not scheduled this parcel yet. Ask them to pick a slot in Parcelo to get a 4-digit code.');
+    }
+
+    const { handover } = parcel;
+
+    if (new Date() > handover.otpExpiresAt) {
+      throw fail(400, 'CODE_EXPIRED', 'This handover code has expired. The resident can reschedule in Parcelo to get a new code.');
+    }
+
+    // Reserve one attempt atomically before checking the code, so parallel guesses
+    // cannot get past the limit
+    const reserved = await prisma.handover.updateMany({
+      where: { id: handover.id, otpAttempts: { lt: MAX_CODE_ATTEMPTS }, completedAt: null },
+      data: { otpAttempts: { increment: 1 } },
+    });
+    if (reserved.count === 0) {
+      throw fail(429, 'CODE_LOCKED', 'This code is locked after 5 wrong attempts. The resident can reschedule in Parcelo to get a new code.');
+    }
+
+    const isValid = await verifyCode(code.trim(), handover.otpHash);
+    if (!isValid) {
+      const remaining = Math.max(0, MAX_CODE_ATTEMPTS - (handover.otpAttempts + 1));
+      throw fail(
+        400,
+        'INVALID_HANDOVER_CODE',
+        remaining > 0
+          ? `Incorrect code. ${remaining} attempt${remaining === 1 ? '' : 's'} left before it locks.`
+          : 'Incorrect code. The code is now locked; the resident can reschedule to get a new one.'
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Only one guard can complete it, even if two submit the right code at once
+      const done = await tx.parcel.updateMany({
+        where: { id: parcel.id, status: ParcelStatus.SCHEDULED },
+        data: { status: ParcelStatus.HANDED_OVER },
+      });
+      if (done.count === 0) {
+        throw fail(409, 'STATUS_CHANGED', 'This parcel was just updated. Refresh to see its current status.');
+      }
+      await tx.handover.update({
+        where: { id: handover.id },
+        data: {
+          completedAt: new Date(),
+          completedById: guardId,
+          otpAttempts: { decrement: 1 }, // the successful entry is not a failed attempt
+        },
+      });
+    });
+
+    const view = await this.loadView(parcel.id);
+    socketService.emitToGuards(societyId, 'parcel:handed_over', view);
+    socketService.emitToFlat(societyId, parcel.flatId, 'parcel:handed_over', view);
+    return view;
+  }
+
+  /**
+   * Gate sends an uncollected parcel back to the courier. Any open code stops working.
+   */
+  async returnParcel(parcelId: string, societyId: string) {
+    const parcel = await prisma.parcel.findFirst({ where: { id: parcelId, societyId } });
+    if (!parcel) {
+      throw fail(404, 'PARCEL_NOT_FOUND', 'Parcel not found in your society.');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const moved = await tx.parcel.updateMany({
+        where: { id: parcel.id, status: { in: RETURNABLE } },
+        data: { status: ParcelStatus.RETURNED },
+      });
+      if (moved.count === 0) {
+        throw fail(400, 'CANNOT_RETURN', 'Only parcels still in the parcel room can be returned.');
+      }
+      await tx.handover.updateMany({
+        where: { parcelId: parcel.id, completedAt: null },
+        data: { otpExpiresAt: new Date() },
+      });
+    });
+
+    const view = await this.loadView(parcel.id);
+    socketService.emitToGuards(societyId, 'parcel:returned', view);
+    socketService.emitToFlat(societyId, parcel.flatId, 'parcel:returned', view);
+    return view;
   }
 }
 
