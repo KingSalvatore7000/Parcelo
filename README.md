@@ -1,3 +1,4 @@
+![Parcelo](docs/repo-card.png)
 # 📦 Parcelo
 **A digital parcel room for Indian apartment societies.**
 
@@ -34,8 +35,7 @@ In most Indian apartment societies, parcels are handled informally at the gate:
 - Working residents miss deliveries, and failed attempts end in returns.
 - There is no proof of who collected a parcel, so disputes have no answer.
 
-Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate approvals. Parcelo adds the missing parcel layer. It is inspired by [Fetch Package](https://fetchpackage.com), a US startup that manages package delivery for apartment communities, adapted for how Indian societies actually work.
-
+Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate approvals. Parcelo adds the missing parcel layer.
 ## Features
 - **Parcel logging**: the guard records flat, courier and a photo in a few taps.
 - **Instant notifications**: the resident is alerted by push, with WhatsApp or SMS as a pluggable option.
