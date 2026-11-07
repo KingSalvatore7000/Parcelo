@@ -1,4 +1,4 @@
-![Parcelo](docs/repo-card.png)
+![Parcelo](docs/parcelo-repo-card.png)
 # 📦 Parcelo
 **A digital parcel room for Indian apartment societies.**
 
@@ -6,7 +6,6 @@ Guards log every parcel at the gate, residents choose when and how to receive it
 
 ![Status](https://img.shields.io/badge/status-in%20development-F26B4E)
 ![Stack](https://img.shields.io/badge/stack-React%20%7C%20React%20Native%20%7C%20Node.js%20%7C%20PostgreSQL-0B5D5B)
-![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
