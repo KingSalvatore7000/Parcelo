@@ -8,6 +8,7 @@ import { config } from './config/env';
 import { authRoutes } from './modules/auth/auth.routes';
 import { parcelRoutes } from './modules/parcels/parcels.routes';
 import { flatRoutes } from './modules/flats/flats.routes';
+import { adminRoutes } from './modules/admin/admin.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { resolveAuthUser, AuthUserPayload } from './middleware/auth';
 import { prisma } from './lib/prisma';
@@ -41,6 +42,7 @@ app.use(cors(corsOptions));
 
 // Photo uploads carry a base64 image; everything else is small JSON
 app.use('/parcels/upload-photo', express.json({ limit: MAX_UPLOAD_JSON }));
+app.use('/admin/residents/import', express.json({ limit: '400kb' }));
 app.use(express.json({ limit: '100kb' }));
 
 // Parcel photos: random file names, image types only (enforced at upload), never sniffed
@@ -97,6 +99,7 @@ app.get('/health', async (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/parcels', parcelRoutes);
 app.use('/flats', flatRoutes);
+app.use('/admin', adminRoutes);
 
 // Sockets must present a valid token; rooms are chosen by the server from the user record
 io.use(async (socket, next) => {

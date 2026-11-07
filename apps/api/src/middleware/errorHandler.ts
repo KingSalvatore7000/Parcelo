@@ -46,5 +46,6 @@ export function errorHandler(
   res.status(statusCode).json({
     error: err.code || 'REQUEST_FAILED',
     message: err.message || 'The request could not be completed.',
+    ...(err.details !== undefined ? { details: err.details } : {}),
   });
 }

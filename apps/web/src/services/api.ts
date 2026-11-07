@@ -146,4 +146,67 @@ export const api = {
     getFlats: () =>
       request<{ success: boolean; count: number; data: any[] }>('/flats'),
   },
+
+  admin: {
+    getStats: () => request<{ success: boolean; data: AdminStats }>('/admin/stats'),
+
+    listFlats: () => request<{ success: boolean; data: AdminFlat[] }>('/admin/flats'),
+    createFlat: (body: { tower: string; number: string }) =>
+      request<{ success: boolean; data: AdminFlat }>('/admin/flats', { method: 'POST', body: JSON.stringify(body) }),
+    deleteFlat: (id: string) => request<{ success: boolean }>(`/admin/flats/${id}`, { method: 'DELETE' }),
+
+    listUsers: () => request<{ success: boolean; data: AdminUser[] }>('/admin/users'),
+    createUser: (body: { name: string; phone: string; role: Role; flatId?: string | null }) =>
+      request<{ success: boolean; data: AdminUser }>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    updateUser: (id: string, body: { name?: string; role?: Role; flatId?: string | null }) =>
+      request<{ success: boolean; data: AdminUser }>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteUser: (id: string) => request<{ success: boolean }>(`/admin/users/${id}`, { method: 'DELETE' }),
+
+    importResidents: (body: { csv: string; createMissingFlats: boolean; dryRun: boolean }) =>
+      request<{ success: boolean; data: { dryRun: boolean; rows: number; residents: number; newFlats: number } }>(
+        '/admin/residents/import',
+        { method: 'POST', body: JSON.stringify(body) }
+      ),
+  },
 };
+
+export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN';
+
+export interface AdminStats {
+  parcels: {
+    byStatus: Record<'LOGGED' | 'SCHEDULED' | 'HANDED_OVER' | 'UNCLAIMED' | 'RETURNED', number>;
+    inRoom: number;
+    overdue: number;
+    loggedToday: number;
+    handedOverToday: number;
+  };
+  doorDeliveriesThisMonth: { count: number; feesPaise: number };
+  people: { flats: number; residents: number; guards: number; admins: number };
+  overdueParcels: {
+    id: string;
+    courier: string;
+    status: string;
+    loggedAt: string;
+    daysInRoom: number;
+    flat: { id: string; label: string };
+    handover: { mode: 'PICKUP' | 'DOOR'; slotStart: string; slotEnd: string } | null;
+  }[];
+}
+
+export interface AdminFlat {
+  id: string;
+  tower: string;
+  number: string;
+  label: string;
+  residents?: { id: string; name: string; phone: string }[];
+  parcelsInRoom?: number;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  phone: string;
+  role: Role;
+  flatId: string | null;
+  flatLabel?: string | null;
+}

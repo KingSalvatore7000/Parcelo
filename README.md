@@ -166,8 +166,9 @@ Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCK
 | POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code (again to reschedule: new code, old one stops working) |
 | POST | `/parcels/:id/handover` | Guard submits the code to complete handover (locks after 5 wrong tries) |
 | POST | `/parcels/:id/return` | Guard returns an uncollected parcel to the courier |
-| GET | `/admin/stats` | Dashboard counts |
-| POST/PATCH | `/admin/flats`, `/admin/users` | Manage flats and residents |
+| GET | `/admin/stats` | Dashboard counts, overdue parcels, door-delivery fees this month |
+| GET/POST/PATCH/DELETE | `/admin/flats`, `/admin/users` | Manage flats and people (admins cannot remove or demote themselves) |
+| POST | `/admin/residents/import` | CSV import `name,phone,tower,flat`, all-or-nothing, `dryRun` to check first |
 
 ## Data model
 `Society` · `Flat` · `User` · `Parcel` · `Handover` · `Notification`

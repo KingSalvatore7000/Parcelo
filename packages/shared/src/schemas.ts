@@ -51,19 +51,51 @@ export const handoverVerifySchema = z.object({
     .regex(/^\d{4}$/, 'Handover code must be exactly 4 numeric digits'),
 });
 
+const towerField = z
+  .string()
+  .trim()
+  .min(1, 'Tower is required (e.g. A)')
+  .max(20)
+  .transform((t) => t.replace(/^tower\s+/i, '').toUpperCase());
+const flatNumberField = z.string().trim().min(1, 'Flat number is required (e.g. 1204)').max(20);
+const nameField = z.string().trim().min(2, 'Name must be at least 2 characters').max(80);
+const phoneField = z
+  .string()
+  .trim()
+  .refine((val) => phoneRegex.test(val.replace(/[\s-]+/g, '')), {
+    message: 'Enter a valid Indian mobile number',
+  });
+
 export const createFlatSchema = z.object({
-  tower: z.string().trim().min(1, 'Tower is required (e.g., Tower A)'),
-  number: z.string().trim().min(1, 'Flat number is required (e.g., 1204)'),
+  tower: towerField,
+  number: flatNumberField,
 });
 
-export const createUserSchema = z.object({
-  name: z.string().trim().min(2, 'Name must be at least 2 characters'),
-  phone: z
-    .string()
-    .trim()
-    .refine((val) => phoneRegex.test(val.replace(/\s+/g, '')), {
-      message: 'Enter a valid Indian mobile number',
-    }),
-  role: z.nativeEnum(UserRole),
-  flatId: z.string().uuid().optional().nullable(),
+export const updateFlatSchema = createFlatSchema.partial();
+
+export const createUserSchema = z
+  .object({
+    name: nameField,
+    phone: phoneField,
+    role: z.nativeEnum(UserRole),
+    flatId: z.string().uuid().optional().nullable(),
+  })
+  .refine((u) => u.role !== UserRole.RESIDENT || !!u.flatId, {
+    message: 'A resident must be linked to a flat',
+    path: ['flatId'],
+  });
+
+export const updateUserSchema = z.object({
+  name: nameField.optional(),
+  role: z.nativeEnum(UserRole).optional(),
+  flatId: z.string().uuid().nullable().optional(),
+});
+
+export const importResidentsSchema = z.object({
+  /** CSV text: name,phone,tower,flat (header row optional) */
+  csv: z.string().min(1, 'Paste at least one row').max(300_000, 'The file is too large (max ~300 KB)'),
+  /** Create flats that do not exist yet, instead of reporting them as errors */
+  createMissingFlats: z.boolean().default(true),
+  /** Only validate and report, do not save */
+  dryRun: z.boolean().default(false),
 });
