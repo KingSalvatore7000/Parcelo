@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { createParcelSchema, handoverVerifySchema, scheduleParcelSchema, ParcelStatus } from '@thapal/shared';
+import { createParcelSchema, handoverVerifySchema, scheduleParcelSchema, ParcelStatus } from '@parcelo/shared';
 import { parcelsService } from './parcels.service';
 import { storageService } from '../../services/storage.service';
 

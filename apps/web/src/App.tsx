@@ -20,7 +20,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F5F7F6' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ width: 32, height: 32, border: '4px solid #0B5D5B', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
-          <p style={{ fontSize: 11, color: '#5E7371', fontWeight: 700, letterSpacing: '0.1em' }}>LOADING THAPAL...</p>
+          <p style={{ fontSize: 11, color: '#5E7371', fontWeight: 700, letterSpacing: '0.1em' }}>LOADING PARCELO...</p>
         </div>
       </div>
     );

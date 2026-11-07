@@ -47,12 +47,12 @@ if (config.nodeEnv === 'development') {
 // Root endpoint
 app.get('/', (req, res) => {
   res.status(200).json({
-    name: 'Thapal API Server',
+    name: 'Parcelo API Server',
     status: 'online',
     version: '1.0.0',
     webAppUrl: 'http://localhost:5173',
     healthCheck: '/health',
-    message: 'Welcome to Thapal API. The Guard Desk and Web UI runs at http://localhost:5173',
+    message: 'Welcome to Parcelo API. The Guard Desk and Web UI runs at http://localhost:5173',
   });
 });
 
@@ -62,7 +62,7 @@ app.get('/health', async (req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
       status: 'ok',
-      service: 'thapal-api',
+      service: 'parcelo-api',
       environment: config.nodeEnv,
       timestamp: new Date().toISOString(),
       database: 'connected',
@@ -70,7 +70,7 @@ app.get('/health', async (req, res) => {
   } catch (err: any) {
     res.status(503).json({
       status: 'degraded',
-      service: 'thapal-api',
+      service: 'parcelo-api',
       database: 'disconnected',
       error: err.message,
     });
@@ -115,7 +115,7 @@ app.use(errorHandler);
 // Start server
 server.listen(config.port, () => {
   console.log('========================================================');
-  console.log(`🚀 Thapal API Server running at http://localhost:${config.port}`);
+  console.log(`🚀 Parcelo API Server running at http://localhost:${config.port}`);
   console.log(`📦 Environment: ${config.nodeEnv}`);
   console.log(`⚡ Socket.io real-time engine ready`);
   console.log('========================================================');

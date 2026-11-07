@@ -291,7 +291,7 @@ const StampCard: React.FC<{ stamp: HandoverStamp; onDismiss: () => void }> = ({ 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <Package style={{ width: 24, height: 24, color: C.coral }} />
             <span style={{ fontFamily: 'Bricolage Grotesque, sans-serif', fontSize: 18, fontWeight: 900, color: C.white, letterSpacing: '-0.02em' }}>
-              Thapal Handover Stamp
+              Parcelo Handover Stamp
             </span>
           </div>
           <div style={{ fontSize: 12, color: `${C.sand}cc`, display: 'flex', gap: 16 }}>

@@ -26,7 +26,7 @@ export const Navbar: React.FC = () => {
   const navigate = useNavigate();
 
   const [darkMode, setDarkMode] = React.useState<boolean>(() => {
-    return localStorage.getItem('thapal_theme') === 'dark';
+    return localStorage.getItem('parcelo_theme') === 'dark';
   });
 
   const toggleDarkMode = () => {
@@ -34,10 +34,10 @@ export const Navbar: React.FC = () => {
     setDarkMode(nextMode);
     if (nextMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('thapal_theme', 'dark');
+      localStorage.setItem('parcelo_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('thapal_theme', 'light');
+      localStorage.setItem('parcelo_theme', 'light');
     }
   };
 
@@ -82,7 +82,7 @@ export const Navbar: React.FC = () => {
                   className="font-heading text-xl font-extrabold tracking-tight"
                   style={{ color: C.white }}
                 >
-                  Thapal
+                  Parcelo
                 </span>
                 <span
                   className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full font-mono"

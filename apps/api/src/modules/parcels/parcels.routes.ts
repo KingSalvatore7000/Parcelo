@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { UserRole } from '@thapal/shared';
+import { UserRole } from '@parcelo/shared';
 import { parcelsController } from './parcels.controller';
 import { authenticate, requireRole, enforceSocietyScope } from '../../middleware/auth';
 

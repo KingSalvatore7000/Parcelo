@@ -41,7 +41,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     socketRef.current = newSocket;
 
     newSocket.on('connect', () => {
-      console.log('⚡ Connected to Thapal WebSocket:', newSocket.id);
+      console.log('⚡ Connected to Parcelo WebSocket:', newSocket.id);
       setIsConnected(true);
 
       // Join role rooms
@@ -58,7 +58,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     newSocket.on('disconnect', () => {
-      console.log('🔌 Disconnected from Thapal WebSocket');
+      console.log('🔌 Disconnected from Parcelo WebSocket');
       setIsConnected(false);
     });
 

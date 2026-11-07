@@ -1,4 +1,4 @@
-import { ParcelStatus, UserRole, HandoverMode } from '@thapal/shared';
+import { ParcelStatus, UserRole, HandoverMode } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { generate4DigitCode, hashCode, verifyCode } from '../../utils/crypto';
 import { socketService } from '../../services/socket.service';
@@ -251,7 +251,7 @@ export class ParcelsService {
       throw {
         status: 429,
         code: 'CODE_LOCKED',
-        message: 'This handover code has been locked due to 5 consecutive incorrect attempts. The resident must re-generate a code from their Thapal app.',
+        message: 'This handover code has been locked due to 5 consecutive incorrect attempts. The resident must re-generate a code from their Parcelo app.',
       };
     }
 

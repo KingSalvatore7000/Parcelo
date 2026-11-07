@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UserRole } from '@thapal/shared';
+import { UserRole } from '@parcelo/shared';
 import { config } from '../config/env';
 
 export interface AuthUserPayload {

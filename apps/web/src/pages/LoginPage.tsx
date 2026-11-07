@@ -75,7 +75,7 @@ export const LoginPage: React.FC = () => {
           <Package className="w-9 h-9 stroke-[2.5]" />
         </div>
         <h2 className="mt-4 font-heading text-3xl font-black text-night dark:text-white tracking-tight">
-          Welcome to Thapal
+          Welcome to Parcelo
         </h2>
         <p className="mt-1 text-sm text-sage dark:text-slate-400 font-medium">
           Society Parcel Room & Secure Handover Platform

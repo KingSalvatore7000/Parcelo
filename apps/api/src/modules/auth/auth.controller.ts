@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { requestOtpSchema, verifyOtpSchema } from '@thapal/shared';
+import { requestOtpSchema, verifyOtpSchema } from '@parcelo/shared';
 import { authService } from './auth.service';
 
 export class AuthController {

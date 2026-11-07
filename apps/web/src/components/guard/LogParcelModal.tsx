@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Camera, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
-import { COMMON_COURIERS } from '@thapal/shared';
+import { COMMON_COURIERS } from '@parcelo/shared';
 
 interface LogParcelModalProps {
   isOpen: boolean;

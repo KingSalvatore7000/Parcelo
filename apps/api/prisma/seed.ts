@@ -3,7 +3,7 @@ import { PrismaClient, UserRole } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting Thapal database seeding...');
+  console.log('🌱 Starting Parcelo database seeding...');
 
   // 1. Clean existing data in reverse order of foreign keys
   await prisma.notification.deleteMany();

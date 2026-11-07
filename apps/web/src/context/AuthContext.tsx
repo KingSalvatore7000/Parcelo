@@ -31,7 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('thapal_token'));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('parcelo_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithOtp = async (phone: string, otp: string): Promise<User> => {
     const res = await api.auth.verifyOtp(phone, otp);
     const { token: newToken, user: userData } = res.data;
-    localStorage.setItem('thapal_token', newToken);
+    localStorage.setItem('parcelo_token', newToken);
     setToken(newToken);
     setUser(userData);
     return userData;
@@ -73,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    localStorage.removeItem('thapal_token');
+    localStorage.removeItem('parcelo_token');
     setToken(null);
     setUser(null);
   };

@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { UserRole } from '@thapal/shared';
+import { UserRole } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
 import { hashCode, verifyCode, generate6DigitOtp } from '../../utils/crypto';
@@ -70,7 +70,7 @@ export class AuthService {
     if (config.mockSmsConsole) {
       console.log('========================================================');
       console.log(`📱 [MOCK SMS to ${phone}]`);
-      console.log(`Your Thapal verification code is: [ ${otp} ]`);
+      console.log(`Your Parcelo verification code is: [ ${otp} ]`);
       console.log(`Valid for 5 minutes. Do not share this with anyone.`);
       console.log('========================================================');
     }
