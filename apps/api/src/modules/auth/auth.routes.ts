@@ -23,10 +23,11 @@ const otpPhoneLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limiter for OTP requests: 10 requests per 15 mins per IP
+// Rate limiter for OTP requests: 100 requests per 15 mins per IP (generous for shared society Wi-Fi;
+// the per-phone limit above is the tight one)
 const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 100,
   message: {
     error: 'RATE_LIMIT_EXCEEDED',
     message: 'Too many OTP requests from this IP. Please try again after 15 minutes.',
@@ -35,10 +36,10 @@ const otpRequestLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limiter for OTP verification attempts: 20 per 15 mins per IP
+// Rate limiter for OTP verification attempts: 200 per 15 mins per IP
 const otpVerifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 200,
   message: {
     error: 'RATE_LIMIT_EXCEEDED',
     message: 'Too many verification attempts. Please wait 15 minutes before retrying.',

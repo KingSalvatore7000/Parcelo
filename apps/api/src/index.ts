@@ -27,6 +27,8 @@ if (config.trustProxy > 0) {
 const corsOptions = {
   origin: config.corsOrigin,
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
 export const io = new SocketIOServer(server, {

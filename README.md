@@ -1,3 +1,4 @@
+![Parcelo](docs/parcelo-repo-card.png)
 # 📦 Parcelo
 **A digital parcel room for Indian apartment societies.**
 
@@ -5,7 +6,6 @@ Guards log every parcel at the gate, residents choose when and how to receive it
 
 ![Status](https://img.shields.io/badge/status-in%20development-F26B4E)
 ![Stack](https://img.shields.io/badge/stack-React%20%7C%20React%20Native%20%7C%20Node.js%20%7C%20PostgreSQL-0B5D5B)
-![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
@@ -34,8 +34,7 @@ In most Indian apartment societies, parcels are handled informally at the gate:
 - Working residents miss deliveries, and failed attempts end in returns.
 - There is no proof of who collected a parcel, so disputes have no answer.
 
-Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate approvals. Parcelo adds the missing parcel layer. It is inspired by [Fetch Package](https://fetchpackage.com), a US startup that manages package delivery for apartment communities, adapted for how Indian societies actually work.
-
+Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate approvals. Parcelo adds the missing parcel layer.
 ## Features
 - **Parcel logging**: the guard records flat, courier and a photo in a few taps.
 - **Instant notifications**: the resident is alerted by push, with WhatsApp or SMS as a pluggable option.
@@ -113,7 +112,7 @@ cp .env.example apps/api/.env
 # 5. Create tables
 npm run db:migrate
 
-# 6. Load demo data (WARNING: deletes all existing data first)
+# 6. Load demo data (safe to re-run: creates or updates the demo society, flats and users)
 npm run db:seed
 
 # 7. Run the apps (separate terminals)
@@ -142,7 +141,7 @@ Used today (see `.env.example`):
 | `DATABASE_URL` | PostgreSQL connection string (required in production) |
 | `JWT_SECRET` | Secret for signing access tokens (production: random, 32+ characters) |
 | `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
-| `CORS_ORIGIN` | Comma-separated allowed web origins (required in production) |
+| `CORS_ORIGIN` | Comma-separated allowed web origins (default: `https://parceloo.onrender.com` and localhost) |
 | `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
 | `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
 | `MOCK_SMS_CONSOLE` | Print login OTPs to the API console (default on only in development) |
@@ -150,7 +149,7 @@ Used today (see `.env.example`):
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
 | `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
 
-In production the API refuses to start if `DATABASE_URL`, `CORS_ORIGIN` or a real `JWT_SECRET` is missing.
+In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing.
 
 Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCKET`, `OTP_PROVIDER`.
 

@@ -54,7 +54,6 @@ if (isProd) {
   } else if (env.JWT_SECRET.length < 32 || /^(thapal|parcelo)_dev_/.test(env.JWT_SECRET)) {
     problems.push('JWT_SECRET must be a random value of at least 32 characters, not the example secret');
   }
-  if (!env.CORS_ORIGIN) problems.push('CORS_ORIGIN is required in production (comma-separated web origins)');
 }
 if (problems.length > 0) {
   console.error(`❌ Refusing to start (NODE_ENV=${env.NODE_ENV}):`);
@@ -72,7 +71,7 @@ export const config = {
   jwtExpiresIn: env.JWT_EXPIRES_IN,
   corsOrigin: env.CORS_ORIGIN
     ? env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
-    : ['http://localhost:5173', 'http://localhost:3000'],
+    : ['https://parceloo.onrender.com', 'http://localhost:5173', 'http://localhost:3000'],
   // Printing OTPs to the console is only on by default in development
   mockSmsConsole: env.MOCK_SMS_CONSOLE ?? isDev,
   // A fixed login OTP is honoured only in development, never in test or production
