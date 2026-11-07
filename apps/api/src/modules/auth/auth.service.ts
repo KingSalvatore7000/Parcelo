@@ -51,9 +51,9 @@ export class AuthService {
     const otpHash = await hashCode(otp);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
-    // Invalidate prior sessions
+    // Invalidate this number's earlier sessions and sweep away any expired ones
     await prisma.otpSession.deleteMany({
-      where: { phone },
+      where: { OR: [{ phone }, { expiresAt: { lt: new Date() } }] },
     });
 
     // Save session

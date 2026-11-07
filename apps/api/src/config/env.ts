@@ -29,6 +29,8 @@ const schema = z.object({
     .optional(),
   // Number of proxy hops in front of the API (e.g. 1 behind nginx); needed for correct client IPs
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  // Door delivery fee in paise (₹20 = 2000); counter pickup is always free
+  DOOR_DELIVERY_FEE_PAISE: z.coerce.number().int().min(0).default(2000),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -76,4 +78,5 @@ export const config = {
   // A fixed login OTP is honoured only in development, never in test or production
   defaultDevOtp: isDev ? env.DEFAULT_DEV_OTP ?? '123456' : undefined,
   trustProxy: env.TRUST_PROXY,
+  doorDeliveryFeePaise: env.DOOR_DELIVERY_FEE_PAISE,
 };

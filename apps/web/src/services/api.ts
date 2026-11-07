@@ -110,13 +110,28 @@ export const api = {
           mode: 'PICKUP' | 'DOOR';
           slotStart: string;
           slotEnd: string;
-          fee: number;
+          feePaise: number;
           code: string;
           expiresAt: string;
+          rescheduled: boolean;
         };
       }>(`/parcels/${id}/schedule`, {
         method: 'POST',
         body: JSON.stringify(body),
+      }),
+
+    getSlots: () =>
+      request<{
+        success: boolean;
+        data: {
+          slots: { start: string; end: string; day: 'today' | 'tomorrow'; label: string }[];
+          fees: { PICKUP: number; DOOR: number };
+        };
+      }>('/parcels/slots'),
+
+    returnParcel: (id: string) =>
+      request<{ success: boolean; message: string; data: any }>(`/parcels/${id}/return`, {
+        method: 'POST',
       }),
 
     /** image: a data:image/jpeg|png|webp;base64,... URL, at most 5 MB decoded */

@@ -25,6 +25,9 @@ router.post(
   (req, res, next) => parcelsController.uploadPhoto(req, res, next)
 );
 
+// Bookable handover slots and fees (before /:id)
+router.get('/slots', (req, res, next) => parcelsController.getSlots(req, res, next));
+
 // Single parcel details
 router.get('/:id', (req, res, next) => parcelsController.getParcelById(req, res, next));
 
@@ -35,7 +38,14 @@ router.post(
   (req, res, next) => parcelsController.completeHandover(req, res, next)
 );
 
-// Resident schedules pickup mode + slot (generates 4-digit code)
+// Gate returns an uncollected parcel to the courier
+router.post(
+  '/:id/return',
+  requireRole(UserRole.GUARD, UserRole.ADMIN),
+  (req, res, next) => parcelsController.returnParcel(req, res, next)
+);
+
+// Resident schedules (or reschedules) pickup mode + slot (generates a fresh 4-digit code)
 router.post(
   '/:id/schedule',
   requireRole(UserRole.RESIDENT, UserRole.ADMIN),

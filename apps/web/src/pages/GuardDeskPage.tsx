@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PackagePlus, Search, RefreshCw, CheckCircle2, Clock, ShieldCheck, Box, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
-import { assetUrl } from '../config';
+import { assetUrl, formatFee } from '../config';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { LogParcelModal } from '../components/guard/LogParcelModal';
@@ -70,23 +70,35 @@ export const GuardDeskPage: React.FC = () => {
       );
     };
 
-    socket.off('parcel:logged');
-    socket.off('parcel:scheduled');
-    socket.off('parcel:handed_over');
-
     socket.on('parcel:logged', handleParcelLogged);
     socket.on('parcel:scheduled', handleParcelScheduled);
     socket.on('parcel:handed_over', handleParcelHandedOver);
+    socket.on('parcel:returned', handleParcelHandedOver);
 
     return () => {
       socket.off('parcel:logged', handleParcelLogged);
       socket.off('parcel:scheduled', handleParcelScheduled);
       socket.off('parcel:handed_over', handleParcelHandedOver);
+      socket.off('parcel:returned', handleParcelHandedOver);
     };
   }, [socket]);
 
+  const handleReturn = async (parcel: any) => {
+    const ok = window.confirm(
+      `Return this ${parcel.courier} parcel for Tower ${parcel.flat.tower} - ${parcel.flat.number} to the courier?\n\nAny handover code the resident has will stop working.`
+    );
+    if (!ok) return;
+    try {
+      setError(null);
+      const res = await api.parcels.returnParcel(parcel.id);
+      setParcels((prev) => prev.map((p) => (p.id === parcel.id ? res.data : p)));
+    } catch (err: any) {
+      setError(err.message || 'Could not mark the parcel as returned.');
+    }
+  };
+
   // Quick stats
-  const activeCount = parcels.filter((p) => p.status === 'LOGGED' || p.status === 'SCHEDULED').length;
+  const activeCount = parcels.filter((p) => ['LOGGED', 'SCHEDULED', 'UNCLAIMED'].includes(p.status)).length;
   const readyCount = parcels.filter((p) => p.status === 'SCHEDULED').length;
   const handedTodayCount = parcels.filter((p) => p.status === 'HANDED_OVER').length;
 
@@ -284,9 +296,11 @@ export const GuardDeskPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {parcels.map((parcel) => {
             const isHandedOver = parcel.status === 'HANDED_OVER';
+            const isReturned = parcel.status === 'RETURNED';
             const isScheduled = parcel.status === 'SCHEDULED';
             const isOlderThan2Days =
               !isHandedOver &&
+              !isReturned &&
               Date.now() - new Date(parcel.loggedAt).getTime() > 2 * 24 * 60 * 60 * 1000;
 
             return (
@@ -326,6 +340,13 @@ export const GuardDeskPage: React.FC = () => {
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Handed Over</span>
+                      </span>
+                    ) : isReturned ? (
+                      <span
+                        className="text-xs font-bold px-2.5 py-1 rounded-full flex items-center space-x-1.5 border"
+                        style={{ backgroundColor: '#F5F7F6', color: '#5E7371', borderColor: '#5E7371' }}
+                      >
+                        <span>↩ Returned</span>
                       </span>
                     ) : isScheduled ? (
                       <span
@@ -390,7 +411,7 @@ export const GuardDeskPage: React.FC = () => {
                   )}
 
                   {/* Handover Mode & Slot Box */}
-                  {parcel.handover && (
+                  {parcel.handover && !isReturned && (
                     <div
                       className="mt-3.5 p-3 rounded-xl border text-xs space-y-1.5"
                       style={{
@@ -402,12 +423,16 @@ export const GuardDeskPage: React.FC = () => {
                       <div className="flex items-center justify-between font-bold">
                         <span style={{ color: '#5E7371' }}>Handover Mode:</span>
                         <span style={{ color: '#0B5D5B' }} className="font-extrabold">
-                          {parcel.handover.mode === 'DOOR' ? '🚪 Door Delivery (₹20)' : '📦 Free Counter Pickup'}
+                          {parcel.handover.mode === 'DOOR'
+                            ? `🚪 Door Delivery (${formatFee(parcel.handover.feePaise)})`
+                            : '📦 Free Counter Pickup'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between font-medium">
                         <span style={{ color: '#5E7371' }}>Time Slot:</span>
                         <span style={{ color: '#10302F' }} className="font-bold">
+                          {new Date(parcel.handover.slotStart).toDateString() !== new Date().toDateString() &&
+                            `${new Date(parcel.handover.slotStart).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, `}
                           {new Date(parcel.handover.slotStart).toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit',
@@ -448,17 +473,34 @@ export const GuardDeskPage: React.FC = () => {
                     >
                       ✓ HANDOVER RECORD COMPLETED
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setHandoverParcel(parcel)}
-                      className="btn-touch w-full rounded-xl font-heading font-black text-sm tracking-wide text-white transition shadow-sm hover:opacity-95 active:scale-98"
-                      style={{
-                        backgroundColor: isScheduled ? '#3A9D5D' : '#0B5D5B',
-                      }}
+                  ) : isReturned ? (
+                    <div
+                      className="text-center py-2.5 text-xs font-black rounded-xl border"
+                      style={{ backgroundColor: '#F5F7F6', color: '#5E7371', borderColor: '#DCE5E3' }}
                     >
-                      {isScheduled ? 'Enter 4-Digit Code to Hand Over' : 'Hand Over with Code'}
-                    </button>
+                      ↩ RETURNED TO COURIER
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setHandoverParcel(parcel)}
+                        className="btn-touch w-full rounded-xl font-heading font-black text-sm tracking-wide text-white transition shadow-sm hover:opacity-95 active:scale-98"
+                        style={{
+                          backgroundColor: isScheduled ? '#3A9D5D' : '#0B5D5B',
+                        }}
+                      >
+                        {isScheduled ? 'Enter 4-Digit Code to Hand Over' : 'Hand Over with Code'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReturn(parcel)}
+                        className="w-full text-xs font-bold py-1.5 rounded-lg hover:underline"
+                        style={{ color: '#5E7371' }}
+                      >
+                        Return to courier
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

@@ -44,8 +44,9 @@ export class ParcelsController {
         return;
       }
 
-      const status = req.query.status as ParcelStatus | undefined;
-      const search = req.query.search as string | undefined;
+      const status = typeof req.query.status === 'string' ? (req.query.status as ParcelStatus) : undefined;
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+      const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) || undefined : undefined;
 
       const parcels = await parcelsService.getParcels({
         societyId: req.user.societyId,
@@ -54,6 +55,7 @@ export class ParcelsController {
         userFlatId: req.user.flatId,
         status,
         search,
+        limit,
       });
 
       res.status(200).json({
@@ -154,9 +156,36 @@ export class ParcelsController {
 
       res.status(200).json({
         success: true,
-        message: `Parcel scheduled for ${validated.mode === 'PICKUP' ? 'counter pickup' : 'door delivery'}. Your 4-digit code is ready.`,
+        message: `Parcel ${stamp.rescheduled ? 'rescheduled' : 'scheduled'} for ${validated.mode === 'PICKUP' ? 'counter pickup' : 'door delivery'}. Your 4-digit code is ready.`,
         data: stamp,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /parcels/slots (bookable handover slots and fees)
+   */
+  async getSlots(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json({ success: true, data: parcelsService.getSlotOptions() });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /parcels/:id/return (Gate returns an uncollected parcel to the courier)
+   */
+  async returnParcel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'UNAUTHORIZED', message: 'Authentication required' });
+        return;
+      }
+      const parcel = await parcelsService.returnParcel(req.params.id, req.user.societyId);
+      res.status(200).json({ success: true, message: 'Parcel marked as returned to the courier.', data: parcel });
     } catch (err) {
       next(err);
     }

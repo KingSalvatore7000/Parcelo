@@ -144,6 +144,7 @@ Used today (see `.env.example`):
 | `JWT_EXPIRES_IN` | Token lifetime (default `7d`) |
 | `CORS_ORIGIN` | Comma-separated allowed web origins (required in production) |
 | `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
+| `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
 | `MOCK_SMS_CONSOLE` | Print login OTPs to the API console (default on only in development) |
 | `DEFAULT_DEV_OTP` | Fixed 6-digit login OTP, honoured only in development (default `123456`) |
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
@@ -161,8 +162,10 @@ Planned: `JWT_REFRESH_SECRET`, `FCM_SERVER_KEY`, `WHATSAPP_TOKEN`, `STORAGE_BUCK
 | POST | `/auth/otp/verify` | Verify OTP and receive tokens |
 | POST | `/parcels` | Guard logs a parcel |
 | GET | `/parcels` | List parcels, scoped by role |
-| POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code |
-| POST | `/parcels/:id/handover` | Guard submits the code to complete handover |
+| GET | `/parcels/slots` | Bookable slots (IST, today and tomorrow) and fees |
+| POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code (again to reschedule: new code, old one stops working) |
+| POST | `/parcels/:id/handover` | Guard submits the code to complete handover (locks after 5 wrong tries) |
+| POST | `/parcels/:id/return` | Guard returns an uncollected parcel to the courier |
 | GET | `/admin/stats` | Dashboard counts |
 | POST/PATCH | `/admin/flats`, `/admin/users` | Manage flats and residents |
 

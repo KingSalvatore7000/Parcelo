@@ -125,7 +125,7 @@ model Handover {
   otpHash       String
   otpExpiresAt  DateTime
   otpAttempts   Int          @default(0)
-  fee           Float        @default(0.0)
+  feePaise      Int          @default(0) // money as integer paise (₹20 = 2000)
   completedAt   DateTime?
   completedById String?
   completedBy   User?        @relation("CompletedHandovers", fields: [completedById], references: [id], onDelete: SetNull)
