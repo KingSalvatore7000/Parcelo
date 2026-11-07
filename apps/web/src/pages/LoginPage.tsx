@@ -81,6 +81,9 @@ export const LoginPage: React.FC = () => {
         <p className="mt-1 text-sm text-sage dark:text-slate-400 font-medium">
           Society Parcel Room & Secure Handover Platform
         </p>
+        <a href="/welcome/" className="inline-block mt-2 text-xs font-bold text-primary hover:underline">
+          ← What is Parcelo?
+        </a>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
