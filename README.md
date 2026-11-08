@@ -37,7 +37,8 @@ In most Indian apartment societies, parcels are handled informally at the gate:
 Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate approvals. Parcelo adds the missing parcel layer.
 ## Features
 - **Parcel logging**: the guard records flat, courier and a photo in a few taps.
-- **Instant notifications**: the resident is alerted by push, with WhatsApp or SMS as a pluggable option.
+- **Mobile app**: residents and guards use the [Parcelo mobile app](https://github.com/KingSalvatore7000/parcelo-mobile); admins use the website.
+- **Parcel alerts**: new-parcel messages and reminders go through a pluggable channel. It prints them to the server log by default; WhatsApp and SMS are optional and need provider keys. Push notifications are planned.
 - **Slot scheduling**: the resident picks pickup from the parcel room (free) or door delivery (paid), and a time slot.
 - **Code-verified handover**: a 4-digit one-time code is shown to the resident and entered by the guard to complete the handover.
 - **Admin dashboard**: live counts, overdue-parcel list, reminders, and resident and flat management.
@@ -45,7 +46,7 @@ Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate app
 
 ## How it works
 1. **Log**: a parcel arrives and the guard logs it against a flat.
-2. **Notify**: everyone linked to that flat is alerted.
+2. **Notify**: an alert is queued for everyone linked to that flat, and the parcel appears in their app.
 3. **Schedule**: the resident chooses pickup or door delivery and a slot, and receives a 4-digit code.
 4. **Hand over**: the guard enters the code, the parcel is marked handed over, and the guard ID and timestamp are saved.
 5. **Follow up**: a daily job reminds residents about parcels waiting more than 2 days and flags old ones to the admin.
@@ -53,21 +54,21 @@ Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate app
 ## Tech stack
 | Layer | Technology |
 |---|---|
-| Web (guard desk and admin) | React, Vite, Tailwind CSS |
-| Mobile (resident app) | React Native (Expo) |
+| Web (admin dashboard, guard desk) | React, Vite, Tailwind CSS |
+| Mobile (residents and guards, separate repo) | React Native (Expo) |
 | Backend | Node.js, Express, TypeScript, Zod |
 | Realtime | Socket.io |
 | Database | PostgreSQL with Prisma |
-| Notifications | Firebase Cloud Messaging, WhatsApp or SMS provider |
+| Notifications | Outbox with console, WhatsApp Cloud API or MSG91 SMS providers |
 | Auth | Mobile number and password (bcrypt), JWT with refresh tokens |
-| Storage | Cloudinary or S3 for parcel photos |
+| Storage | Local disk with signed links for parcel photos (object storage planned) |
 
 ## Architecture
 
 ```
-Resident app (React Native) ─┐
+Mobile app (React Native)    ─┐
 Guard desk (React)           ─┼─►  Node.js + Express API  ─┬─► PostgreSQL (Prisma)
-Admin dashboard (React)      ─┘    REST · Socket.io · JWT  ├─► Push / WhatsApp / SMS
+Admin dashboard (React)      ─┘    REST · Socket.io · JWT  ├─► Console / WhatsApp / SMS
                                                            └─► Photo storage
 ```
 
@@ -77,8 +78,7 @@ Admin dashboard (React)      ─┘    REST · Socket.io · JWT  ├─► Push 
 parcelo/
 ├── apps/
 │   ├── api/        # Express API, Prisma schema, jobs
-│   ├── web/        # Guard desk and admin dashboard (React)
-│   └── mobile/     # Resident app (React Native, Expo) — planned
+│   └── web/        # Admin dashboard, guard desk and intro page (React)
 ├── packages/
 │   └── shared/     # Shared types and Zod schemas
 ├── docker-compose.yml
@@ -130,9 +130,13 @@ Other scripts: `npm run build` (shared, API and web), `npm test` (API tests), `n
 cp .env.example .env.prod   # set POSTGRES_PASSWORD, JWT_SECRET, PUBLIC_WEB_URL, PUBLIC_API_URL and the message provider
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
-The API container applies pending migrations on start. Put a TLS proxy in front of the web (8080) and API (4000) ports.
+The API container applies pending migrations on start. Put a TLS proxy in front of the web (8080) and API (4000) ports, and do not leave those ports open to the internet directly. Set `TRUST_PROXY` to the number of proxies in front of the API (the compose file defaults to `1`), or rate limits will treat all visitors as one.
 
-> The resident mobile app (`apps/mobile`) is planned and not in the repo yet.
+Never run `npm run db:seed` on a production database. It creates accounts with a public password, so it refuses when `NODE_ENV=production`.
+
+Before a real launch: send `{"event":"security_alert"}` log lines to an alert on your host, and if the host's disk is not persistent, mount a volume for `apps/api/uploads` or parcel photos will be lost on restart.
+
+> The mobile app for residents and guards is in its own repository: [parcelo-mobile](https://github.com/KingSalvatore7000/parcelo-mobile).
 
 ### Demo flow
 The seeded demo accounts (`npm run db:seed`) all use the password `Demo@1234`: guard `9876543210`, admin `9876543211`, residents `9876543212` and `9876543213`. On the dev server the login page also has one-click demo profiles.
@@ -154,7 +158,7 @@ Used today (see `.env.example`):
 | `JWT_SECRET` | Secret for signing access tokens and photo links (production: random, 32+ characters) |
 | `JWT_EXPIRES_IN` | Access token lifetime (default `15m`); the app renews it with the refresh token |
 | `REFRESH_TOKEN_DAYS` | How long a device stays signed in without use (default `30`) |
-| `CORS_ORIGIN` | Comma-separated allowed web origins (default: `https://parceloo.onrender.com` and localhost) |
+| `CORS_ORIGIN` | Comma-separated allowed web origins, never `*` (default: `https://parceloo.onrender.com`, plus localhost outside production) |
 | `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
 | `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
 | `NOTIFY_CHANNEL` | Parcel alerts and reminders: `console` (prints them), `whatsapp` or `sms` |
@@ -167,9 +171,11 @@ Used today (see `.env.example`):
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
 | `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
 
-In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing.
+In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing. It also refuses `CORS_ORIGIN=*` in any environment.
 
 ### Messages
+Sign-in does not use WhatsApp or SMS. With the default `NOTIFY_CHANNEL=console`, parcel alerts are only printed in the server log, so residents see new parcels by opening the app.
+
 New-parcel alerts and reminders are written to an outbox table and sent every 30 seconds through `NOTIFY_CHANNEL`, retried up to 3 times. Register these templates with your provider (variables in this order): **NEW_PARCEL** (courier, flat), **REMINDER** (courier, flat, days waiting), and put their names or ids in the matching `WHATSAPP_TEMPLATE_*` or `MSG91_TEMPLATE_*` variables.
 
 ## API overview
@@ -184,6 +190,8 @@ New-parcel alerts and reminders are written to an outbox table and sent every 30
 | POST | `/parcels` | Guard logs a parcel |
 | GET | `/parcels` | List parcels, scoped by role |
 | GET | `/parcels/slots` | Bookable slots (IST, today and tomorrow) and fees |
+| POST | `/parcels/upload-photo` | Guard uploads a parcel photo (JPEG, PNG or WebP, up to 5 MB) |
+| GET | `/flats` | Guards and admins: the society's flats |
 | POST | `/parcels/:id/schedule` | Resident chooses mode and slot, receives code (again to reschedule: new code, old one stops working) |
 | POST | `/parcels/:id/handover` | Guard submits the code to complete handover (locks after 5 wrong tries) |
 | POST | `/parcels/:id/return` | Guard returns an uncollected parcel to the courier |
@@ -192,7 +200,7 @@ New-parcel alerts and reminders are written to an outbox table and sent every 30
 | POST | `/admin/residents/import` | CSV import `name,phone,tower,flat`, all-or-nothing, `dryRun` to check first |
 
 ## Data model
-`Society` · `Flat` · `User` · `Parcel` · `Handover` · `Notification`
+`Society` · `Flat` · `User` · `Parcel` · `Handover` · `Notification` · `RefreshToken`
 
 Parcel status flow: `LOGGED → SCHEDULED → HANDED_OVER` (with `UNCLAIMED` and `RETURNED` as side states).
 
@@ -201,12 +209,21 @@ Parcel status flow: `LOGGED → SCHEDULED → HANDED_OVER` (with `UNCLAIMED` and
 - Handover codes stored **hashed**, with expiry and attempt limits
 - Every query scoped to a single society, with role-based access on every route
 - Private photo storage and minimal personal data, following the principles of India's DPDP Act
+- Sign-out, password changes and admin resets end the affected sessions at once, including live connections
+- Per-number, per-IP and per-user rate limits on sign-in and expensive actions
+- Uploads checked by content and size, stored under random names, served only on signed links
+- CSP and other security headers, HTTP to HTTPS redirects, and no cached API answers
+- Security events (failed sign-ins, denied requests, admin actions) logged as JSON without passwords or tokens, with a `security_alert` line on spikes
 
 ## Roadmap
 - [x] Parcel logging and code-verified handover
 - [x] Resident slot scheduling
 - [x] Admin dashboard
+- [x] Mobile app for residents and guards
+- [x] Security review before launch
+- [ ] Deploy to production
 - [ ] Pilot in one or two societies
+- [ ] Push notifications
 - [ ] Payments for door delivery (Razorpay)
 - [ ] Smart parcel lockers
 - [ ] Integration with existing society apps and courier tracking
