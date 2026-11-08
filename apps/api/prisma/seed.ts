@@ -6,6 +6,10 @@ const prisma = new PrismaClient();
 const DEMO_PASSWORD = 'Demo@1234';
 
 async function main() {
+  // The demo accounts share a password that is in this file
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to seed demo accounts with NODE_ENV=production.');
+  }
   console.log('Starting Parcelo database seeding...');
 
   // Create or find the demo society

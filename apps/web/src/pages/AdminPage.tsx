@@ -63,7 +63,11 @@ const TempPassword: React.FC<{ name: string; phone: string; password: string }> 
 
 /** Plain CSV of the imported residents' temporary passwords, for the committee to print or share */
 function downloadCredentials(rows: ImportedCredential[]) {
-  const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  // A leading ' stops Excel running a name like =HYPERLINK(...) as a formula
+  const esc = (raw: string) => {
+    const v = /^[=+\-@\t\r]/.test(raw) && !/^\+\d+$/.test(raw) ? `'${raw}` : raw;
+    return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
   const csv = ['name,phone,flat,temporary password', ...rows.map((r) => [r.name, r.phone, r.flat, r.temporaryPassword].map(esc).join(','))].join('\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   const a = document.createElement('a');

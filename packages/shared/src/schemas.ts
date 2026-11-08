@@ -13,7 +13,8 @@ export const loginSchema = z.object({
 export const newPasswordField = z
   .string()
   .min(8, 'Use at least 8 characters')
-  .max(128, 'Use at most 128 characters')
+  // bcrypt ignores everything after 72 bytes
+  .max(72, 'Use at most 72 characters')
   .refine((p) => !/^\d+$/.test(p), { message: 'Use letters as well as numbers' });
 
 export const changePasswordSchema = z.object({

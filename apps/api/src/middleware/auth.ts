@@ -31,20 +31,25 @@ declare global {
 export async function resolveAuthUser(token: string | undefined | null): Promise<AuthUserPayload | null> {
   if (!token) return null;
 
-  let decoded: { id?: unknown };
+  let decoded: { id?: unknown; sid?: unknown };
   try {
-    decoded = jwt.verify(token, config.jwtSecret) as { id?: unknown };
+    decoded = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] }) as { id?: unknown; sid?: unknown };
   } catch {
     return null;
   }
-  if (typeof decoded.id !== 'string') return null;
+  if (typeof decoded.id !== 'string' || typeof decoded.sid !== 'string') return null;
 
-  const user = await prisma.user.findUnique({
+  const found = await prisma.user.findUnique({
     where: { id: decoded.id },
-    select: { id: true, name: true, phone: true, role: true, societyId: true, flatId: true, mustChangePassword: true },
+    select: {
+      id: true, name: true, phone: true, role: true, societyId: true, flatId: true, mustChangePassword: true,
+      // Sign-out and password changes delete this row, which ends the access token at once
+      refreshTokens: { where: { id: decoded.sid }, select: { id: true } },
+    },
   });
-  if (!user) return null;
+  if (!found || found.refreshTokens.length === 0) return null;
 
+  const { refreshTokens: _session, ...user } = found;
   return { ...user, role: user.role as UserRole };
 }
 

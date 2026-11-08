@@ -1,10 +1,10 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { UserRole } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
 import { hashPassword, hashTempPassword, verifyPassword, generateTempPassword } from '../../utils/crypto';
-import { AuthUserPayload } from '../../middleware/auth';
+import { socketService } from '../../services/socket.service';
+import { securityLog } from '../../services/securityLog';
 
 /**
  * Standardize Indian phone number to E.164 format (+91XXXXXXXXXX)
@@ -24,6 +24,12 @@ export function normalizePhone(rawPhone: string): string {
 }
 
 const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+
+/** Every session of this user ends now: refresh tokens, access tokens and live sockets */
+async function endAllSessions(userId: string) {
+  await prisma.refreshToken.deleteMany({ where: { userId } });
+  socketService.disconnectUser(userId);
+}
 
 type UserWithPlace = NonNullable<Awaited<ReturnType<typeof loadUser>>>;
 function loadUser(where: { id: string } | { phone: string }) {
@@ -73,7 +79,7 @@ export async function setTemporaryPassword(userId: string): Promise<string> {
     where: { id: userId },
     data: { passwordHash: await hashTempPassword(temp), mustChangePassword: true },
   });
-  await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  await endAllSessions(userId);
   return temp;
 }
 
@@ -113,7 +119,7 @@ export class AuthService {
       where: { id: user.id },
       data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false },
     });
-    await prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    await endAllSessions(user.id);
 
     const fresh = (await loadUser({ id: user.id }))!;
     const tokens = await this.issueTokens(fresh);
@@ -130,7 +136,8 @@ export class AuthService {
 
     if (!row) throw invalid;
     if (row.revokedAt) {
-      await prisma.refreshToken.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+      securityLog('refresh_token_reuse', { userId: row.userId });
+      await endAllSessions(row.userId);
       throw invalid;
     }
     if (row.expiresAt < new Date()) throw invalid;
@@ -152,31 +159,21 @@ export class AuthService {
   /** End this device's session */
   async logout(refreshToken: string | undefined) {
     if (!refreshToken) return;
-    await prisma.refreshToken.updateMany({
-      where: { tokenHash: sha256(refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await prisma.refreshToken.deleteMany({ where: { tokenHash: sha256(refreshToken) } });
   }
 
   private async issueTokens(user: UserWithPlace) {
-    const payload: AuthUserPayload = {
-      id: user.id,
-      name: user.name,
-      phone: user.phone,
-      role: user.role as UserRole,
-      societyId: user.societyId,
-      flatId: user.flatId,
-    };
-    const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn } as jwt.SignOptions);
-
     const refreshToken = crypto.randomBytes(32).toString('base64url');
-    await prisma.refreshToken.create({
+    const session = await prisma.refreshToken.create({
       data: {
         userId: user.id,
         tokenHash: sha256(refreshToken),
         expiresAt: new Date(Date.now() + config.refreshTokenDays * 86_400_000),
       },
     });
+    // Only identifiers: the server reloads the person on every request, and no phone number sits in the token
+    const token = jwt.sign({ id: user.id, sid: session.id }, config.jwtSecret, { expiresIn: config.jwtExpiresIn } as jwt.SignOptions);
+
     // Old, used or expired tokens of this user are no longer needed
     await prisma.refreshToken.deleteMany({
       where: { userId: user.id, OR: [{ expiresAt: { lt: new Date() } }, { revokedAt: { lt: new Date(Date.now() - 86_400_000) } }] },

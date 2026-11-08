@@ -54,9 +54,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.warn('Live updates unavailable:', err.message);
     });
 
-    newSocket.on('disconnect', () => {
+    newSocket.on('disconnect', (reason) => {
       console.log('🔌 Disconnected from Parcelo WebSocket');
       setIsConnected(false);
+      // The server re-checks people after a password or role change; come back with a fresh token
+      if (reason === 'io server disconnect') newSocket.connect();
     });
 
     setSocket(newSocket);

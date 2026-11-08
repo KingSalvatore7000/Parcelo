@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { loginSchema, changePasswordSchema } from '@parcelo/shared';
 import { z } from 'zod';
-import { authService } from './auth.service';
+import { authService, normalizePhone } from './auth.service';
+import { securityLog, maskPhone } from '../../services/securityLog';
 
 const refreshSchema = z.object({ refreshToken: z.string().min(20).max(200) });
 
@@ -12,6 +13,9 @@ export class AuthController {
       const result = await authService.login(phone, password);
       res.status(200).json({ success: true, data: result });
     } catch (err) {
+      if ((err as { code?: string }).code === 'INVALID_LOGIN') {
+        securityLog('login_failed', { phone: maskPhone(normalizePhone(String(req.body?.phone))), ip: req.ip });
+      }
       next(err);
     }
   }
@@ -20,8 +24,12 @@ export class AuthController {
     try {
       const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
       const result = await authService.changePassword(req.user!.id, currentPassword, newPassword);
+      securityLog('password_changed', { userId: req.user!.id, ip: req.ip });
       res.status(200).json({ success: true, data: result });
     } catch (err) {
+      if ((err as { code?: string }).code === 'WRONG_PASSWORD') {
+        securityLog('password_change_failed', { userId: req.user!.id, ip: req.ip });
+      }
       next(err);
     }
   }

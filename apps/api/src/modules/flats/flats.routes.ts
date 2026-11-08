@@ -1,10 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
-import { authenticate, enforceSocietyScope } from '../../middleware/auth';
+import { UserRole } from '@parcelo/shared';
+import { authenticate, enforceSocietyScope, requireRole } from '../../middleware/auth';
 
 const router = Router();
 
-router.use(authenticate, enforceSocietyScope);
+// The society's flat list is for the gate and the committee, not for residents
+router.use(authenticate, enforceSocietyScope, requireRole(UserRole.GUARD, UserRole.ADMIN));
 
 /**
  * GET /flats
