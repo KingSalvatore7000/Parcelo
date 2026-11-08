@@ -84,13 +84,10 @@ export async function markUnclaimed(now = new Date()): Promise<number> {
   return marked;
 }
 
-/** Remove expired login codes and finished sessions */
+/** Remove expired sessions */
 export async function cleanUp(now = new Date()) {
-  const [otps, tokens] = await Promise.all([
-    prisma.otpSession.deleteMany({ where: { expiresAt: { lt: now } } }),
-    prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: now } } }),
-  ]);
-  return { otps: otps.count, tokens: tokens.count };
+  const tokens = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: now } } });
+  return { tokens: tokens.count };
 }
 
 function every(ms: number, name: string, fn: () => Promise<unknown>) {

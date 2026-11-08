@@ -112,32 +112,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}, retried =
 
 export const api = {
   auth: {
-    requestOtp: (phone: string) =>
-      request<{ success: boolean; message: string; expiresInSeconds: number; devOtp?: string }>('/auth/otp/request', {
+    login: (phone: string, password: string) =>
+      request<{ success: boolean; data: SessionPayload }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, password }),
       }),
 
-    verifyOtp: (phone: string, otp: string) =>
-      request<{
-        success: boolean;
-        data: {
-          token: string;
-          refreshToken: string;
-          user: {
-            id: string;
-            name: string;
-            phone: string;
-            role: 'RESIDENT' | 'GUARD' | 'ADMIN';
-            societyId: string;
-            societyName: string;
-            flatId?: string | null;
-            flat?: { id: string; tower: string; number: string; label: string } | null;
-          };
-        };
-      }>('/auth/otp/verify', {
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<{ success: boolean; data: SessionPayload }>('/auth/password', {
         method: 'POST',
-        body: JSON.stringify({ phone, otp }),
+        body: JSON.stringify({ currentPassword, newPassword }),
       }),
 
     getMe: () =>
@@ -233,13 +217,15 @@ export const api = {
 
     listUsers: () => request<{ success: boolean; data: AdminUser[] }>('/admin/users'),
     createUser: (body: { name: string; phone: string; role: Role; flatId?: string | null }) =>
-      request<{ success: boolean; data: AdminUser }>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+      request<{ success: boolean; data: AdminUser & { temporaryPassword: string } }>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    resetPassword: (id: string) =>
+      request<{ success: boolean; data: { name: string; phone: string; temporaryPassword: string } }>(`/admin/users/${id}/reset-password`, { method: 'POST' }),
     updateUser: (id: string, body: { name?: string; role?: Role; flatId?: string | null }) =>
       request<{ success: boolean; data: AdminUser }>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteUser: (id: string) => request<{ success: boolean }>(`/admin/users/${id}`, { method: 'DELETE' }),
 
     importResidents: (body: { csv: string; createMissingFlats: boolean; dryRun: boolean }) =>
-      request<{ success: boolean; data: { dryRun: boolean; rows: number; residents: number; newFlats: number } }>(
+      request<{ success: boolean; data: { dryRun: boolean; rows: number; residents: number; newFlats: number; credentials?: ImportedCredential[] } }>(
         '/admin/residents/import',
         { method: 'POST', body: JSON.stringify(body) }
       ),
@@ -247,6 +233,29 @@ export const api = {
 };
 
 export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN';
+
+export interface SessionPayload {
+  token: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    name: string;
+    phone: string;
+    role: Role;
+    societyId: string;
+    societyName: string;
+    flatId?: string | null;
+    mustChangePassword: boolean;
+    flat?: { id: string; tower: string; number: string; label: string } | null;
+  };
+}
+
+export interface ImportedCredential {
+  name: string;
+  phone: string;
+  flat: string;
+  temporaryPassword: string;
+}
 
 export interface AdminStats {
   parcels: {

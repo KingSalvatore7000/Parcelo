@@ -3,12 +3,8 @@ import jwt from 'jsonwebtoken';
 import { UserRole } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
-import { hashCode, verifyCode, generate6DigitOtp } from '../../utils/crypto';
+import { hashPassword, hashTempPassword, verifyPassword, generateTempPassword } from '../../utils/crypto';
 import { AuthUserPayload } from '../../middleware/auth';
-import { sendOtp } from '../../services/notify/notifier';
-
-const OTP_TTL_MS = 5 * 60 * 1000;
-const MAX_OTP_ATTEMPTS = 5;
 
 /**
  * Standardize Indian phone number to E.164 format (+91XXXXXXXXXX)
@@ -43,6 +39,7 @@ function profile(user: UserWithPlace) {
     societyId: user.societyId,
     societyName: user.society.name,
     flatId: user.flatId,
+    mustChangePassword: user.mustChangePassword,
     flat: user.flat
       ? {
           id: user.flat.id,
@@ -55,102 +52,72 @@ function profile(user: UserWithPlace) {
   };
 }
 
+/** Refuse a password that is easy to guess for this person */
+function weakPasswordReason(password: string, phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (password.replace(/\D/g, '').length >= 10 && digits.endsWith(password.replace(/\D/g, '').slice(-10))) {
+    return 'Do not use your phone number as your password.';
+  }
+  if (/^(password|parcelo)\d*$/i.test(password)) return 'Choose a password that is harder to guess.';
+  return null;
+}
+
+/**
+ * Give a user a new temporary password (an admin creating or resetting an account). They must
+ * change it at their next sign-in, and every session they have now ends.
+ * Returns the plain password: shown to the admin once, never stored.
+ */
+export async function setTemporaryPassword(userId: string): Promise<string> {
+  const temp = generateTempPassword();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: await hashTempPassword(temp), mustChangePassword: true },
+  });
+  await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  return temp;
+}
+
+const BAD_LOGIN = { status: 401, code: 'INVALID_LOGIN', message: 'That mobile number and password do not match.' };
+
 export class AuthService {
   /**
-   * Request OTP for phone login. Outside development the answer is the same whether or not the
-   * number is registered, so the endpoint cannot be used to find out who lives in a society.
+   * Sign in with a mobile number and password. The same answer for an unknown number and a wrong
+   * password, in the same time, so the form cannot be used to find out who is registered.
    */
-  async requestOtp(rawPhone: string) {
-    const phone = normalizePhone(rawPhone);
-    const generic = {
-      success: true,
-      message: 'If this number is registered with Parcelo, a sign-in code is on its way.',
-      expiresInSeconds: OTP_TTL_MS / 1000,
-    };
-
-    const user = await prisma.user.findUnique({ where: { phone }, select: { id: true } });
-    if (!user) {
-      if (config.isDev) {
-        throw {
-          status: 404,
-          code: 'USER_NOT_FOUND',
-          message: `No account registered with phone ${phone}. Ask your society admin to add you.`,
-        };
-      }
-      return generic;
-    }
-
-    // Fixed OTP only in development (config leaves it undefined otherwise); random everywhere else
-    const otp = config.defaultDevOtp ?? generate6DigitOtp();
-    const otpHash = await hashCode(otp);
-
-    // Invalidate this number's earlier sessions and sweep away any expired ones
-    await prisma.otpSession.deleteMany({
-      where: { OR: [{ phone }, { expiresAt: { lt: new Date() } }] },
-    });
-    const session = await prisma.otpSession.create({
-      data: { phone, otpHash, expiresAt: new Date(Date.now() + OTP_TTL_MS), attempts: 0 },
-    });
-
-    try {
-      await sendOtp(phone, otp);
-    } catch (err) {
-      await prisma.otpSession.deleteMany({ where: { id: session.id } });
-      console.error(`OTP delivery to ${phone} failed:`, (err as Error).message);
-      throw { status: 503, code: 'OTP_NOT_SENT', message: 'We could not send the sign-in code. Please try again in a minute.' };
-    }
-
-    return { ...generic, devOtp: config.isDev ? otp : undefined };
-  }
-
-  /**
-   * Verify OTP and start a session: a short access token and a refresh token
-   */
-  async verifyOtp(rawPhone: string, otp: string) {
-    const phone = normalizePhone(rawPhone);
-
-    const session = await prisma.otpSession.findFirst({
-      where: { phone },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!session) {
-      throw { status: 400, code: 'NO_ACTIVE_OTP', message: 'No active code for this number. Please request a new one.' };
-    }
-    if (new Date() > session.expiresAt) {
-      await prisma.otpSession.deleteMany({ where: { id: session.id } });
-      throw { status: 400, code: 'OTP_EXPIRED', message: 'The code has expired. Please request a new one.' };
-    }
-
-    // Reserve the attempt before checking, so parallel guesses cannot pass the limit
-    const reserved = await prisma.otpSession.updateMany({
-      where: { id: session.id, attempts: { lt: MAX_OTP_ATTEMPTS } },
-      data: { attempts: { increment: 1 } },
-    });
-    if (reserved.count === 0) {
-      // deleteMany: parallel guesses may race to remove the same row
-      await prisma.otpSession.deleteMany({ where: { id: session.id } });
-      throw { status: 429, code: 'MAX_ATTEMPTS_EXCEEDED', message: 'Too many incorrect attempts. Please request a new code.' };
-    }
-
-    if (!(await verifyCode(otp, session.otpHash))) {
-      const remaining = MAX_OTP_ATTEMPTS - (session.attempts + 1);
-      throw {
-        status: 400,
-        code: 'INVALID_OTP',
-        message: `Incorrect code. ${remaining > 0 ? `${remaining} attempts remaining.` : 'Please request a new code.'}`,
-      };
-    }
-
-    await prisma.otpSession.deleteMany({ where: { id: session.id } });
-
-    const user = await loadUser({ phone });
-    if (!user) {
-      throw { status: 404, code: 'USER_NOT_FOUND', message: 'User record not found.' };
-    }
+  async login(rawPhone: string, password: string) {
+    const user = await loadUser({ phone: normalizePhone(rawPhone) });
+    const ok = await verifyPassword(password, user?.passwordHash);
+    if (!user || !ok) throw BAD_LOGIN;
 
     const tokens = await this.issueTokens(user);
     return { ...tokens, user: profile(user) };
+  }
+
+  /**
+   * Change the signed-in user's password. Ends their other sessions; the one in use is replaced
+   * by the returned token pair.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await loadUser({ id: userId });
+    if (!user) throw { status: 404, code: 'USER_NOT_FOUND', message: 'User not found.' };
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      throw { status: 400, code: 'WRONG_PASSWORD', message: 'Your current password is not right.' };
+    }
+    if (currentPassword === newPassword) {
+      throw { status: 400, code: 'SAME_PASSWORD', message: 'Choose a password different from the current one.' };
+    }
+    const weak = weakPasswordReason(newPassword, user.phone);
+    if (weak) throw { status: 400, code: 'WEAK_PASSWORD', message: weak };
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false },
+    });
+    await prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
+
+    const fresh = (await loadUser({ id: user.id }))!;
+    const tokens = await this.issueTokens(fresh);
+    return { ...tokens, user: profile(fresh) };
   }
 
   /**

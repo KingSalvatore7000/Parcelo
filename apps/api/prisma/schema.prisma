@@ -78,6 +78,10 @@ model User {
   id        String    @id @default(uuid())
   name      String
   phone     String    @unique
+  /// bcrypt hash; null until an admin sets a temporary password
+  passwordHash       String?
+  /// true after an admin sets or resets the password: the user must choose their own
+  mustChangePassword Boolean @default(true)
   role      UserRole  @default(RESIDENT)
   societyId String
   society   Society   @relation(fields: [societyId], references: [id], onDelete: Cascade)
@@ -177,15 +181,3 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
-model OtpSession {
-  id        String   @id @default(uuid())
-  phone     String
-  otpHash   String
-  expiresAt DateTime
-  attempts  Int      @default(0)
-  verified  Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([phone])
-  @@map("otp_sessions")
-}

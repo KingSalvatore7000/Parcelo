@@ -59,7 +59,7 @@ Society apps such as MyGate and NoBrokerHood mainly handle visitors and gate app
 | Realtime | Socket.io |
 | Database | PostgreSQL with Prisma |
 | Notifications | Firebase Cloud Messaging, WhatsApp or SMS provider |
-| Auth | Phone OTP, JWT |
+| Auth | Mobile number and password (bcrypt), JWT with refresh tokens |
 | Storage | Cloudinary or S3 for parcel photos |
 
 ## Architecture
@@ -135,6 +135,8 @@ The API container applies pending migrations on start. Put a TLS proxy in front 
 > The resident mobile app (`apps/mobile`) is planned and not in the repo yet.
 
 ### Demo flow
+The seeded demo accounts (`npm run db:seed`) all use the password `Demo@1234`: guard `9876543210`, admin `9876543211`, residents `9876543212` and `9876543213`. On the dev server the login page also has one-click demo profiles.
+
 1. Sign in as the guard and log a parcel for a flat.
 2. Sign in as that flat's resident and choose a slot. A 4-digit code appears.
 3. Back on the guard desk, enter a wrong code to see the error, then the right code to complete the handover.
@@ -155,9 +157,7 @@ Used today (see `.env.example`):
 | `CORS_ORIGIN` | Comma-separated allowed web origins (default: `https://parceloo.onrender.com` and localhost) |
 | `TRUST_PROXY` | Proxy hops in front of the API, for correct client IPs (default `0`) |
 | `DOOR_DELIVERY_FEE_PAISE` | Door delivery fee in paise (default `2000` = ₹20) |
-| `DEFAULT_DEV_OTP` | Fixed 6-digit login OTP, honoured only in development (default `123456`) |
 | `NOTIFY_CHANNEL` | Parcel alerts and reminders: `console` (prints them), `whatsapp` or `sms` |
-| `OTP_CHANNEL` | Sign-in codes: same choices; production requires `whatsapp` or `sms` |
 | `WHATSAPP_*` | WhatsApp Cloud API token, phone number id, language and template names |
 | `MSG91_*` | MSG91 auth key and DLT template ids |
 | `JOBS_ENABLED` | Background jobs (default on, off in tests) |
@@ -167,17 +167,18 @@ Used today (see `.env.example`):
 | `VITE_API_URL` | (web) API base URL, default `http://localhost:4000` |
 | `VITE_DEMO_MODE` | (web) `true` shows demo logins in a production build |
 
-In production the API refuses to start if `DATABASE_URL`, a real `JWT_SECRET` or a real `OTP_CHANNEL` is missing.
+In production the API refuses to start if `DATABASE_URL` or a real `JWT_SECRET` is missing.
 
 ### Messages
-New-parcel alerts and reminders are written to an outbox table and sent every 30 seconds through `NOTIFY_CHANNEL`, retried up to 3 times. Register these templates with your provider (variables in this order): **OTP** (code), **NEW_PARCEL** (courier, flat), **REMINDER** (courier, flat, days waiting), and put their names or ids in the matching `WHATSAPP_TEMPLATE_*` or `MSG91_TEMPLATE_*` variables.
+New-parcel alerts and reminders are written to an outbox table and sent every 30 seconds through `NOTIFY_CHANNEL`, retried up to 3 times. Register these templates with your provider (variables in this order): **NEW_PARCEL** (courier, flat), **REMINDER** (courier, flat, days waiting), and put their names or ids in the matching `WHATSAPP_TEMPLATE_*` or `MSG91_TEMPLATE_*` variables.
 
 ## API overview
 
 | Method | Route | Purpose |
 |---|---|---|
-| POST | `/auth/otp/request` | Request a login OTP |
-| POST | `/auth/otp/verify` | Verify OTP and receive an access and a refresh token |
+| POST | `/auth/login` | Mobile number and password; returns an access and a refresh token |
+| POST | `/auth/password` | Change your password (required after a temporary one) |
+| POST | `/admin/users/:id/reset-password` | Admin: a new one-time temporary password for someone who forgot theirs |
 | POST | `/auth/refresh` | Swap the refresh token for a new pair (the old one stops working) |
 | POST | `/auth/logout` | End this device's session |
 | POST | `/parcels` | Guard logs a parcel |
@@ -196,7 +197,7 @@ New-parcel alerts and reminders are written to an outbox table and sent every 30
 Parcel status flow: `LOGGED → SCHEDULED → HANDED_OVER` (with `UNCLAIMED` and `RETURNED` as side states).
 
 ## Security
-- Phone OTP login with rate limiting and short-lived tokens
+- Password sign-in (bcrypt) with limits on wrong attempts, short-lived tokens and rotating refresh tokens; admins issue one-time temporary passwords that must be changed at first sign-in
 - Handover codes stored **hashed**, with expiry and attempt limits
 - Every query scoped to a single society, with role-based access on every route
 - Private photo storage and minimal personal data, following the principles of India's DPDP Act

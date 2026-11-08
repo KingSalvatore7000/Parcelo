@@ -20,7 +20,6 @@ export default defineConfig({
       JOBS_ENABLED: 'false',
       JWT_EXPIRES_IN: '15m',
       NOTIFY_CHANNEL: 'console',
-      OTP_CHANNEL: 'console',
       CORS_ORIGIN: 'http://localhost:5173',
     },
   },

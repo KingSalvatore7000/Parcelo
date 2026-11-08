@@ -4,23 +4,21 @@ import { UserRole, HandoverMode } from './enums';
 // Indian phone number regex or standard 10-digit mobile
 export const phoneRegex = /^(?:\+91|91)?[6-9]\d{9}$/;
 
-export const requestOtpSchema = z.object({
-  phone: z
-    .string()
-    .trim()
-    .min(10, 'Phone number must be at least 10 digits')
-    .refine((val) => phoneRegex.test(val.replace(/\s+/g, '')), {
-      message: 'Enter a valid Indian mobile number (e.g. +919876543210 or 9876543210)',
-    }),
+export const loginSchema = z.object({
+  phone: z.string().trim().min(10, 'Enter your 10-digit mobile number').max(20),
+  password: z.string().min(1, 'Enter your password').max(200),
 });
 
-export const verifyOtpSchema = z.object({
-  phone: z.string().trim(),
-  otp: z
-    .string()
-    .trim()
-    .min(4, 'OTP must be at least 4 digits')
-    .max(6, 'OTP cannot exceed 6 digits'),
+/** At least 8 characters; the server also refuses passwords that are only digits or the phone number */
+export const newPasswordField = z
+  .string()
+  .min(8, 'Use at least 8 characters')
+  .max(128, 'Use at most 128 characters')
+  .refine((p) => !/^\d+$/.test(p), { message: 'Use letters as well as numbers' });
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Enter your current password').max(200),
+  newPassword: newPasswordField,
 });
 
 /** Public path the API returns for an uploaded parcel photo */

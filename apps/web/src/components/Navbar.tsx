@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, LogOut, Moon, Sun } from 'lucide-react';
+import { Package, LogOut, Moon, Sun, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { DEMO_MODE } from '../config';
@@ -174,9 +174,18 @@ export const Navbar: React.FC = () => {
                   </div>
                 </div>
                 <button
+                  onClick={() => navigate('/password')}
+                  style={{ padding: 8, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'pointer', color: `${C.sand}cc` }}
+                  title="Change password"
+                  aria-label="Change password"
+                >
+                  <KeyRound style={{ width: 20, height: 20 }} />
+                </button>
+                <button
                   onClick={logout}
                   style={{ padding: 8, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'pointer', color: `${C.sand}99` }}
                   title="Sign out"
+                  aria-label="Sign out"
                   onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = C.brick; (e.currentTarget as HTMLButtonElement).style.color = C.white; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = `${C.sand}99`; }}
                 >

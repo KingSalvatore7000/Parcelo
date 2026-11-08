@@ -8,7 +8,7 @@ server.listen(config.port, () => {
   console.log(`🚀 Parcelo API Server running at http://localhost:${config.port}`);
   console.log(`📦 Environment: ${config.nodeEnv}`);
   console.log(`🌐 Allowed origins: ${config.corsOrigin.join(', ')}`);
-  console.log(`✉️  Messages via ${config.notify.channel}, sign-in codes via ${config.notify.otpChannel}`);
+  console.log(`✉️  Parcel messages via ${config.notify.channel}`);
   console.log('========================================================');
   startJobs();
 });

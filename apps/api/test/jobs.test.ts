@@ -112,9 +112,9 @@ describe('outbox', () => {
 });
 
 describe('clean-up', () => {
-  it('removes expired login codes', async () => {
-    await prisma.otpSession.create({ data: { phone: s.guard.phone, otpHash: 'x', expiresAt: new Date(Date.now() - 1000) } });
+  it('removes expired sessions', async () => {
+    await prisma.refreshToken.create({ data: { userId: s.guard.id, tokenHash: `expired-${Date.now()}`, expiresAt: new Date(Date.now() - 1000) } });
     const r = await cleanUp();
-    expect(r.otps).toBeGreaterThanOrEqual(1);
+    expect(r.tokens).toBeGreaterThanOrEqual(1);
   });
 });

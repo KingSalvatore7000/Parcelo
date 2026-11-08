@@ -1,69 +1,49 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Shield, Home, ArrowRight, Loader2, AlertCircle, Phone, Lock } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { api } from '../services/api';
+import { useAuth, User } from '../context/AuthContext';
 import { DEMO_MODE } from '../config';
 
+/** Where a user lands after signing in: the password screen first when they must set one */
+export function homeFor(user: User): string {
+  if (user.mustChangePassword) return '/password';
+  if (user.role === 'GUARD') return '/guard';
+  if (user.role === 'RESIDENT') return '/resident';
+  return '/admin';
+}
+
 export const LoginPage: React.FC = () => {
-  const { loginWithOtp, quickLogin } = useAuth();
+  const { login, quickLogin } = useAuth();
   const navigate = useNavigate();
 
-  const [phone, setPhone] = useState<string>(DEMO_MODE ? '+919876543210' : '');
-  const [otp, setOtp] = useState<string>('');
-  const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
+  const [phone, setPhone] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [devOtp, setDevOtp] = useState<string | null>(null);
 
-  const handleRequestOtp = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
-
     try {
-      const res = await api.auth.requestOtp(phone);
-      if (res.devOtp) {
-        setDevOtp(res.devOtp);
-        setOtp(res.devOtp);
-      }
-      setStep('OTP');
+      const user = await login(phone, password);
+      navigate(homeFor(user));
     } catch (err: any) {
-      setError(err.message || 'Failed to request verification code.');
+      setError(err.message || 'Could not sign in. Please try again.');
+      setPassword('');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsLoading(true);
-
-    try {
-      const user = await loginWithOtp(phone, otp);
-      if (user.role === 'GUARD') {
-        navigate('/guard');
-      } else if (user.role === 'RESIDENT') {
-        navigate('/resident');
-      } else {
-        navigate('/admin');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed. Please check the code.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleQuickDemoLogin = async (demoPhone: string, targetPath: string) => {
+  const handleQuickDemoLogin = async (demoPhone: string) => {
     setError(null);
     setIsLoading(true);
     try {
-      await quickLogin(demoPhone);
-      navigate(targetPath);
+      const user = await quickLogin(demoPhone);
+      navigate(homeFor(user));
     } catch (err: any) {
-      setError(err.message || 'Quick login failed.');
+      setError(err.message || 'Demo sign-in failed. Run npm run db:seed to create the demo accounts.');
     } finally {
       setIsLoading(false);
     }
@@ -95,96 +75,65 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
-          {step === 'PHONE' ? (
-            <form onSubmit={handleRequestOtp} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-night dark:text-slate-300 mb-1">
-                  Mobile Number
-                </label>
-                <div className="relative">
-                  <Phone className="w-5 h-5 absolute left-3 top-3 text-sage" />
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+919876543210"
-                    className="w-full pl-10 pr-4 py-2.5 text-base border border-line dark:border-slate-700 rounded-xl bg-mist dark:bg-slate-800 text-night dark:text-slate-100 placeholder:text-sage focus:outline-none focus:ring-2 focus:ring-primary font-medium"
-                  />
-                </div>
-                <p className="text-xs text-sage mt-1 font-medium">Enter your registered 10-digit Indian mobile number</p>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label htmlFor="login-phone" className="block text-sm font-bold text-night dark:text-slate-300 mb-1">
+                Mobile number
+              </label>
+              <div className="relative">
+                <Phone className="w-5 h-5 absolute left-3 top-3 text-sage" aria-hidden="true" />
+                <input
+                  id="login-phone"
+                  type="tel"
+                  autoComplete="username"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="98765 43210"
+                  className="w-full pl-10 pr-4 py-2.5 text-base border border-line dark:border-slate-700 rounded-xl bg-mist dark:bg-slate-800 text-night dark:text-slate-100 placeholder:text-sage focus:outline-none focus:ring-2 focus:ring-primary font-medium"
+                />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn-touch w-full bg-coral hover:bg-coral-hover text-white font-heading font-extrabold text-base tracking-wide rounded-xl shadow-lg transition flex items-center justify-center space-x-2 disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Sending OTP...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Send Verification Code</span>
-                    <ArrowRight className="w-5 h-5" />
-                  </>
-                )}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-bold text-night dark:text-slate-300">
-                    Enter Verification Code
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setStep('PHONE')}
-                    className="text-xs text-coral hover:underline font-bold"
-                  >
-                    Change phone
-                  </button>
-                </div>
-
-                <div className="relative">
-                  <Lock className="w-5 h-5 absolute left-3 top-3 text-sage" />
-                  <input
-                    type="text"
-                    required
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="123456"
-                    className="w-full pl-10 pr-4 py-2.5 text-xl font-heading font-black tracking-widest text-center border border-line dark:border-slate-700 rounded-xl bg-mist dark:bg-slate-800 text-night dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-
-                {devOtp && (
-                  <p className="text-xs text-leaf font-bold mt-1">
-                    Demo Mode: OTP auto-filled as [{devOtp}]
-                  </p>
-                )}
+            <div>
+              <label htmlFor="login-password" className="block text-sm font-bold text-night dark:text-slate-300 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-5 h-5 absolute left-3 top-3 text-sage" aria-hidden="true" />
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 text-base border border-line dark:border-slate-700 rounded-xl bg-mist dark:bg-slate-800 text-night dark:text-slate-100 placeholder:text-sage focus:outline-none focus:ring-2 focus:ring-primary font-medium"
+                />
               </div>
+              <p className="text-xs text-sage mt-1 font-medium">
+                New here or forgot it? Your society admin gives you a temporary password.
+              </p>
+            </div>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn-touch w-full bg-coral hover:bg-coral-hover text-white font-heading font-extrabold text-base tracking-wide rounded-xl shadow-lg transition flex items-center justify-center space-x-2 disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Verifying...</span>
-                  </>
-                ) : (
-                  <span>Verify and Sign In</span>
-                )}
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-touch w-full bg-coral hover:bg-coral-hover text-white font-heading font-extrabold text-base tracking-wide rounded-xl shadow-lg transition flex items-center justify-center space-x-2 disabled:opacity-50"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign in</span>
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </form>
 
           {/* Quick Demo Logins Section (dev / demo builds only) */}
           {DEMO_MODE && (
@@ -196,7 +145,7 @@ export const LoginPage: React.FC = () => {
             <div className="grid grid-cols-1 gap-2">
               <button
                 type="button"
-                onClick={() => handleQuickDemoLogin('+919876543210', '/guard')}
+                onClick={() => handleQuickDemoLogin('+919876543210')}
                 className="p-3 bg-mist hover:bg-sand/40 dark:bg-slate-800 dark:hover:bg-slate-700/80 rounded-xl text-left border border-line dark:border-slate-700 transition flex items-center justify-between"
               >
                 <div className="flex items-center space-x-2.5">
@@ -213,7 +162,7 @@ export const LoginPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => handleQuickDemoLogin('+919876543212', '/resident')}
+                onClick={() => handleQuickDemoLogin('+919876543212')}
                 className="p-3 bg-mist hover:bg-sand/40 dark:bg-slate-800 dark:hover:bg-slate-700/80 rounded-xl text-left border border-line dark:border-slate-700 transition flex items-center justify-between"
               >
                 <div className="flex items-center space-x-2.5">
@@ -230,7 +179,7 @@ export const LoginPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => handleQuickDemoLogin('+919876543211', '/admin')}
+                onClick={() => handleQuickDemoLogin('+919876543211')}
                 className="p-3 bg-mist hover:bg-sand/40 dark:bg-slate-800 dark:hover:bg-slate-700/80 rounded-xl text-left border border-line dark:border-slate-700 transition flex items-center justify-between"
               >
                 <div className="flex items-center space-x-2.5">

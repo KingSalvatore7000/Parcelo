@@ -113,7 +113,7 @@ app.use('/admin', adminRoutes);
 io.use(async (socket, next) => {
   try {
     const user = await resolveAuthUser(socket.handshake.auth?.token);
-    if (!user) {
+    if (!user || user.mustChangePassword) {
       next(new Error('UNAUTHORIZED'));
       return;
     }

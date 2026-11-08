@@ -14,16 +14,13 @@ import {
  * Message kinds and their template variables, in order. Register templates with these
  * variables in WhatsApp Business Manager or MSG91 (DLT), then set their ids in the env.
  *
- *   OTP         1: the 6-digit code
  *   NEW_PARCEL  1: courier, 2: flat label
  *   REMINDER    1: courier, 2: flat label, 3: days waiting
  */
-export type MessageKind = 'OTP' | 'NEW_PARCEL' | 'REMINDER';
+export type MessageKind = 'NEW_PARCEL' | 'REMINDER';
 
 export function messageText(kind: MessageKind, params: string[]): string {
   switch (kind) {
-    case 'OTP':
-      return `${params[0]} is your Parcelo sign-in code. It expires in 5 minutes. Do not share it.`;
     case 'NEW_PARCEL':
       return `Parcelo: a ${params[0]} parcel for ${params[1]} is at the gate. Open Parcelo to pick a pickup slot.`;
     case 'REMINDER':
@@ -61,12 +58,6 @@ export function setProviderForTests(channel: Channel, p: Provider) {
 
 export function compose(channel: Channel, kind: MessageKind, to: string, params: string[]): OutgoingMessage {
   return { to, params, text: messageText(kind, params), template: templateFor(channel, kind) };
-}
-
-/** Send a login OTP right away (not through the outbox: it must arrive within its 5 minutes) */
-export async function sendOtp(phone: string, otp: string): Promise<void> {
-  const ch = config.notify.otpChannel;
-  await provider(ch).send({ ...compose(ch, 'OTP', phone, [otp]), otp });
 }
 
 /** The database channel value for the configured notification channel */

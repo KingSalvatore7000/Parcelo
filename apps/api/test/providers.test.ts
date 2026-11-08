@@ -32,15 +32,6 @@ describe('WhatsApp Cloud API requests', () => {
     });
   });
 
-  it('adds the copy-code button for a sign-in code', async () => {
-    const calls = captureFetch();
-    await wa.send({ to: '+919876543210', text: 'x', template: 'login_code', params: ['482913'], otp: '482913' });
-    const body = JSON.parse(String(calls[0].init.body));
-    expect(body.template.components[1]).toEqual({
-      type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: '482913' }],
-    });
-  });
-
   it('treats a 400 as final and a 503 as worth retrying', async () => {
     captureFetch(400);
     await expect(wa.send({ to: '+91', text: '', template: 't', params: [] })).rejects.toMatchObject({ retryable: false });

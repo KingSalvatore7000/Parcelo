@@ -3,6 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { setProviderForTests } from '../src/services/notify/notifier';
+import { hashPassword } from '../src/utils/crypto';
 import type { OutgoingMessage, Provider } from '../src/services/notify/providers';
 
 export { app, prisma };
@@ -25,14 +26,21 @@ export function newPhone() {
   return `+9190${String(Date.now() % 1_000_000).padStart(6, '0')}${String(phoneSeq).padStart(2, '0')}`.slice(0, 13);
 }
 
+/** Every test user's password (already their own: no forced change) */
+export const PASSWORD = 'Test-pass-2026';
+let passwordHash: string | null = null;
+
 /** A society with two flats, a guard, an admin and a resident in each flat */
 export async function makeSociety() {
+  passwordHash ??= await hashPassword(PASSWORD);
   const tag = crypto.randomBytes(3).toString('hex');
   const society = await prisma.society.create({ data: { name: `Test Society ${tag}` } });
   const flatA = await prisma.flat.create({ data: { societyId: society.id, tower: 'A', number: '101' } });
   const flatB = await prisma.flat.create({ data: { societyId: society.id, tower: 'B', number: '202' } });
   const mk = (name: string, role: 'GUARD' | 'ADMIN' | 'RESIDENT', flatId: string | null = null) =>
-    prisma.user.create({ data: { name, phone: newPhone(), role, societyId: society.id, flatId } });
+    prisma.user.create({
+      data: { name, phone: newPhone(), role, societyId: society.id, flatId, passwordHash, mustChangePassword: false },
+    });
   const guard = await mk('Test Guard', 'GUARD');
   const admin = await mk('Test Admin', 'ADMIN');
   const residentA = await mk('Resident A', 'RESIDENT', flatA.id);
@@ -40,14 +48,10 @@ export async function makeSociety() {
   return { society, flatA, flatB, guard, admin, residentA, residentB };
 }
 
-/** Sign in through the real OTP flow, reading the code from the captured message */
-export async function login(phone: string): Promise<{ token: string; refreshToken: string }> {
-  const req = await api().post('/auth/otp/request').send({ phone });
-  if (req.status !== 200) throw new Error(`otp request ${req.status}: ${JSON.stringify(req.body)}`);
-  const msg = [...outbox].reverse().find((m) => m.to === phone);
-  if (!msg) throw new Error(`no OTP message captured for ${phone}`);
-  const res = await api().post('/auth/otp/verify').send({ phone, otp: msg.params[0] });
-  if (res.status !== 200) throw new Error(`otp verify ${res.status}: ${JSON.stringify(res.body)}`);
+/** Sign in through the real password endpoint */
+export async function login(phone: string, password = PASSWORD): Promise<{ token: string; refreshToken: string }> {
+  const res = await api().post('/auth/login').send({ phone, password });
+  if (res.status !== 200) throw new Error(`login ${res.status}: ${JSON.stringify(res.body)}`);
   return { token: res.body.data.token, refreshToken: res.body.data.refreshToken };
 }
 

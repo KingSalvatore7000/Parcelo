@@ -1,7 +1,9 @@
 
 import { PrismaClient, UserRole } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
+const DEMO_PASSWORD = 'Demo@1234';
 
 async function main() {
   console.log('Starting Parcelo database seeding...');
@@ -91,6 +93,8 @@ async function main() {
     },
   ];
 
+  // Demo accounts share one password (apps/web/src/config.ts DEMO_PASSWORD); never use these in production
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
   for (const user of users) {
     await prisma.user.upsert({
       where: { phone: user.phone },
@@ -99,11 +103,14 @@ async function main() {
         role: user.role,
         societyId: user.societyId,
         flatId: user.flatId,
+        passwordHash,
+        mustChangePassword: false,
       },
-      create: user,
+      create: { ...user, passwordHash, mustChangePassword: false },
     });
-    console.log(`Demo account ready: ${user.name}`);
+    console.log(`Demo account ready: ${user.name} (${user.phone})`);
   }
+  console.log(`Demo password for all of them: ${DEMO_PASSWORD}`);
 
   console.log('Database seeding completed!');
 }

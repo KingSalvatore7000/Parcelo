@@ -2,7 +2,7 @@
 #   cp .env.example .env.prod   (then set the values below in it)
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 # Required in .env.prod: POSTGRES_PASSWORD, JWT_SECRET (random, 32+ chars), PUBLIC_WEB_URL,
-# PUBLIC_API_URL, OTP_CHANNEL and NOTIFY_CHANNEL (whatsapp or sms) with that provider's keys.
+# PUBLIC_API_URL, and NOTIFY_CHANNEL (console, whatsapp or sms) with that provider's keys.
 # Put a TLS proxy (Caddy, nginx, a cloud load balancer) in front of both ports.
 name: parcelo
 
@@ -38,16 +38,13 @@ services:
       CORS_ORIGIN: ${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}
       TRUST_PROXY: ${TRUST_PROXY:-1}
       DOOR_DELIVERY_FEE_PAISE: ${DOOR_DELIVERY_FEE_PAISE:-2000}
-      NOTIFY_CHANNEL: ${NOTIFY_CHANNEL:?set NOTIFY_CHANNEL}
-      OTP_CHANNEL: ${OTP_CHANNEL:?set OTP_CHANNEL}
+      NOTIFY_CHANNEL: ${NOTIFY_CHANNEL:-console}
       WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_LANGUAGE: ${WHATSAPP_LANGUAGE:-en}
-      WHATSAPP_TEMPLATE_OTP: ${WHATSAPP_TEMPLATE_OTP:-}
       WHATSAPP_TEMPLATE_NEW_PARCEL: ${WHATSAPP_TEMPLATE_NEW_PARCEL:-}
       WHATSAPP_TEMPLATE_REMINDER: ${WHATSAPP_TEMPLATE_REMINDER:-}
       MSG91_AUTH_KEY: ${MSG91_AUTH_KEY:-}
-      MSG91_TEMPLATE_OTP: ${MSG91_TEMPLATE_OTP:-}
       MSG91_TEMPLATE_NEW_PARCEL: ${MSG91_TEMPLATE_NEW_PARCEL:-}
       MSG91_TEMPLATE_REMINDER: ${MSG91_TEMPLATE_REMINDER:-}
     volumes:

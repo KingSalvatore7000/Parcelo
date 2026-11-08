@@ -1,30 +1,26 @@
 import { Request, Response, NextFunction } from 'express';
-import { requestOtpSchema, verifyOtpSchema } from '@parcelo/shared';
+import { loginSchema, changePasswordSchema } from '@parcelo/shared';
 import { z } from 'zod';
 import { authService } from './auth.service';
 
 const refreshSchema = z.object({ refreshToken: z.string().min(20).max(200) });
 
 export class AuthController {
-  async requestOtp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async login(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const validated = requestOtpSchema.parse(req.body);
-      const result = await authService.requestOtp(validated.phone);
-      res.status(200).json(result);
+      const { phone, password } = loginSchema.parse(req.body);
+      const result = await authService.login(phone, password);
+      res.status(200).json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
   }
 
-  async verifyOtp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const validated = verifyOtpSchema.parse(req.body);
-      const result = await authService.verifyOtp(validated.phone, validated.otp);
-      res.status(200).json({
-        success: true,
-        message: 'Authentication successful',
-        data: result,
-      });
+      const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+      const result = await authService.changePassword(req.user!.id, currentPassword, newPassword);
+      res.status(200).json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

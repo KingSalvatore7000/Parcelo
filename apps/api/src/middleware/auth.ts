@@ -11,6 +11,8 @@ export interface AuthUserPayload {
   role: UserRole;
   societyId: string;
   flatId?: string | null;
+  /** Set only on the loaded user (never in the token): a temporary password is still in use */
+  mustChangePassword?: boolean;
 }
 
 declare global {
@@ -39,7 +41,7 @@ export async function resolveAuthUser(token: string | undefined | null): Promise
 
   const user = await prisma.user.findUnique({
     where: { id: decoded.id },
-    select: { id: true, name: true, phone: true, role: true, societyId: true, flatId: true },
+    select: { id: true, name: true, phone: true, role: true, societyId: true, flatId: true, mustChangePassword: true },
   });
   if (!user) return null;
 
@@ -65,6 +67,14 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       res.status(401).json({
         error: 'TOKEN_EXPIRED_OR_INVALID',
         message: 'Your session has expired or the token is invalid. Please log in again.',
+      });
+      return;
+    }
+    // A temporary password (known to the admin who set it) only opens /auth until it is replaced
+    if (user.mustChangePassword && req.baseUrl !== '/auth') {
+      res.status(403).json({
+        error: 'PASSWORD_CHANGE_REQUIRED',
+        message: 'Set your own password before using Parcelo.',
       });
       return;
     }
