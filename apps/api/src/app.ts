@@ -16,8 +16,9 @@ import { adminRoutes } from './modules/admin/admin.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { resolveAuthUser, AuthUserPayload } from './middleware/auth';
 import { prisma } from './lib/prisma';
-import { initSocketService, guardRoom, flatRoom } from './services/socket.service';
-import { UPLOAD_ROOT, MAX_UPLOAD_JSON, requireSignedPhoto } from './services/storage.service';
+import { initSocketService, guardRoom, flatRoom, userRoom } from './services/socket.service';
+import { UPLOAD_ROOT, requireSignedPhoto } from './services/storage.service';
+import { securityLog } from './services/securityLog';
 
 const app = express();
 const server = http.createServer(app);
@@ -41,15 +42,36 @@ export const io = new SocketIOServer(server, {
 
 initSocketService(io);
 
-// Security headers. Parcel photos are loaded by the web app from another port or
-// subdomain, which is same-site, so allow same-site embedding of resources.
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
+// Behind a TLS proxy, plain HTTP is sent to HTTPS (308 keeps the method and body)
+if (config.isProd) {
+  app.use((req, res, next) => {
+    if (req.get('x-forwarded-proto') === 'http') {
+      res.redirect(308, `https://${req.get('host')}${req.originalUrl}`);
+      return;
+    }
+    next();
+  });
+}
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' }, frameguard: { action: 'deny' } }));
 app.use(cors(corsOptions));
 
-// Photo uploads carry a base64 image; everything else is small JSON
-app.use('/parcels/upload-photo', express.json({ limit: MAX_UPLOAD_JSON }));
-app.use('/admin/residents/import', express.json({ limit: '400kb' }));
-app.use(express.json({ limit: '100kb' }));
+// Denied and throttled requests go to the security log (expired photo links are routine)
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const event = res.statusCode === 403 ? 'permission_denied' : res.statusCode === 429 ? 'rate_limited' : null;
+    if (event && !req.originalUrl.startsWith('/uploads')) {
+      securityLog(event, { userId: req.user?.id, ip: req.ip, method: req.method, path: req.originalUrl.split('?')[0] });
+    }
+  });
+  next();
+});
+
+// Small JSON everywhere. The two large-body routes parse their own body after checking who is
+// calling, so nobody can make the server read megabytes without signing in.
+const LARGE_BODY_ROUTES = new Set(['/parcels/upload-photo', '/admin/residents/import']);
+const smallJson = express.json({ limit: '100kb' });
+app.use((req, res, next) => (LARGE_BODY_ROUTES.has(req.path) ? next() : smallJson(req, res, next)));
 
 // Parcel photos: private, served only on a signed, unexpired link (signPhotoUrl); random file
 // names, image types only (enforced at upload), never sniffed
@@ -62,9 +84,17 @@ app.use(
     setHeaders: (res) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'");
+      // The link itself is the permission, and the web app may be on another site than the API
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     },
   })
 );
+
+// API answers can hold temporary passwords and personal details: never cache them
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 // Request logging in development
 if (config.isDev) {
@@ -127,6 +157,7 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   const user = socket.data.user as AuthUserPayload;
 
+  socket.join(userRoom(user.id));
   if (user.role === UserRole.GUARD || user.role === UserRole.ADMIN) {
     socket.join(guardRoom(user.societyId));
   }

@@ -13,7 +13,7 @@ const loginPhoneLimiter = rateLimit({
   windowMs: FIFTEEN_MIN,
   max: 10,
   skipSuccessfulRequests: true,
-  keyGenerator: (req) => `phone:${normalizePhone(typeof req.body?.phone === 'string' ? req.body.phone : '')}`,
+  keyGenerator: (req) => `phone:${normalizePhone(typeof req.body?.phone === 'string' ? req.body.phone.slice(0, 20) : '')}`,
   message: { error: 'RATE_LIMIT_EXCEEDED', message: 'Too many wrong passwords for this number. Please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -51,7 +51,7 @@ const refreshLimiter = rateLimit({
 router.post('/login', loginIpLimiter, loginPhoneLimiter, (req, res, next) => authController.login(req, res, next));
 router.post('/password', authenticate, passwordChangeLimiter, (req, res, next) => authController.changePassword(req, res, next));
 router.post('/refresh', refreshLimiter, (req, res, next) => authController.refresh(req, res, next));
-router.post('/logout', (req, res, next) => authController.logout(req, res, next));
+router.post('/logout', refreshLimiter, (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 
 export const authRoutes = router;

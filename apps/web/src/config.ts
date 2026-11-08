@@ -7,7 +7,7 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_URL || 'http://loca
 export const DEMO_MODE: boolean = import.meta.env.DEV || import.meta.env.VITE_DEMO_MODE === 'true';
 
 /** Password of the seeded demo accounts (apps/api/prisma/seed.ts); used by the demo profiles only */
-export const DEMO_PASSWORD = 'Demo@1234';
+export const DEMO_PASSWORD = DEMO_MODE ? 'Demo@1234' : '';
 
 /** 2000 paise → "₹20", 2050 → "₹20.50", 0 → "Free" */
 export function formatFee(paise: number | null | undefined): string {

@@ -30,11 +30,13 @@ export function requireSignedPhoto(req: Request, res: Response, next: NextFuncti
   const exp = Number(req.query.exp);
   const sig = typeof req.query.sig === 'string' ? req.query.sig : '';
   const expected = Number.isFinite(exp) ? photoSig(p, exp) : '';
+  const given = Buffer.from(sig);
+  const wanted = Buffer.from(expected);
   const ok =
     parcelPhotoPathRegex.test(p) &&
     exp * 1000 > Date.now() &&
-    sig.length === expected.length &&
-    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    given.length === wanted.length &&
+    crypto.timingSafeEqual(given, wanted);
   if (!ok) {
     res.status(403).json({ error: 'PHOTO_LINK_INVALID', message: 'This photo link has expired. Reload the page.' });
     return;

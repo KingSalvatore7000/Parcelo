@@ -74,7 +74,10 @@ if (isProd) {
     problems.push('JWT_SECRET must be a random value of at least 32 characters, not the example secret');
   }
 }
-if (env.NOTIFY_CHANNEL === 'whatsapp' && (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID)) {
+if (env.CORS_ORIGIN?.split(',').some((o) => o.trim() === '*')) {
+  problems.push('CORS_ORIGIN must list your own domains, not *');
+}
+if (env.NOTIFY_CHANNEL === 'whatsapp' &&(!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID)) {
   problems.push('NOTIFY_CHANNEL=whatsapp needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID');
 }
 if (env.NOTIFY_CHANNEL === 'sms' && !env.MSG91_AUTH_KEY) problems.push('NOTIFY_CHANNEL=sms needs MSG91_AUTH_KEY');
@@ -96,7 +99,7 @@ export const config = {
   refreshTokenDays: env.REFRESH_TOKEN_DAYS,
   corsOrigin: env.CORS_ORIGIN
     ? env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
-    : ['https://parceloo.onrender.com', 'http://localhost:5173', 'http://localhost:3000'],
+    : ['https://parceloo.onrender.com', ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:3000'])],
   trustProxy: env.TRUST_PROXY,
   doorDeliveryFeePaise: env.DOOR_DELIVERY_FEE_PAISE,
   notify: {

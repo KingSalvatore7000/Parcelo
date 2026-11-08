@@ -1,7 +1,9 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { UserRole } from '@parcelo/shared';
 import { parcelsController } from './parcels.controller';
 import { authenticate, requireRole, enforceSocietyScope } from '../../middleware/auth';
+import { perUserLimit } from '../../middleware/rateLimit';
+import { MAX_UPLOAD_JSON } from '../../services/storage.service';
 
 const router = Router();
 
@@ -22,6 +24,8 @@ router.post(
 router.post(
   '/upload-photo',
   requireRole(UserRole.GUARD, UserRole.ADMIN),
+  perUserLimit(120),
+  express.json({ limit: MAX_UPLOAD_JSON }),
   (req, res, next) => parcelsController.uploadPhoto(req, res, next)
 );
 
@@ -35,6 +39,7 @@ router.get('/:id', (req, res, next) => parcelsController.getParcelById(req, res,
 router.post(
   '/:id/handover',
   requireRole(UserRole.GUARD, UserRole.ADMIN),
+  perUserLimit(300),
   (req, res, next) => parcelsController.completeHandover(req, res, next)
 );
 
@@ -49,6 +54,7 @@ router.post(
 router.post(
   '/:id/schedule',
   requireRole(UserRole.RESIDENT, UserRole.ADMIN),
+  perUserLimit(60),
   (req, res, next) => parcelsController.scheduleParcel(req, res, next)
 );
 

@@ -3,6 +3,7 @@ import { ParcelStatus, UserRole, phoneRegex } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { normalizePhone, setTemporaryPassword } from '../auth/auth.service';
 import { generateTempPassword, hashTempPassword } from '../../utils/crypto';
+import { socketService } from '../../services/socket.service';
 
 type AppError = { status: number; code: string; message: string; details?: unknown };
 const fail = (status: number, code: string, message: string, details?: unknown): AppError => ({
@@ -235,6 +236,8 @@ export class AdminService {
       where: { id },
       data: { name: data.name, role: nextRole, flatId: nextFlat },
     });
+    // Live updates were chosen for the old role and flat
+    if (nextRole !== user.role || nextFlat !== user.flatId) socketService.disconnectUser(id);
     return { id: u.id, name: u.name, phone: u.phone, role: u.role, flatId: u.flatId };
   }
 
@@ -255,6 +258,7 @@ export class AdminService {
     }
     // Their sign-in stops working immediately: every request reloads the user
     await prisma.user.delete({ where: { id } });
+    socketService.disconnectUser(id);
   }
 
   /** A forgotten password: a new temporary one, shown once; the person's sessions end */

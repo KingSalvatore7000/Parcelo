@@ -6,6 +6,7 @@ import { generate4DigitCode, hashCode, verifyCode } from '../../utils/crypto';
 import { socketService } from '../../services/socket.service';
 import { dbChannel } from '../../services/notify/notifier';
 import { signPhotoUrl } from '../../services/storage.service';
+import { securityLog } from '../../services/securityLog';
 import { availableSlots, findSlot, CODE_GRACE_MS } from './slots';
 
 const MAX_CODE_ATTEMPTS = 5;
@@ -324,6 +325,7 @@ export class ParcelsService {
 
     const isValid = await verifyCode(code.trim(), handover.otpHash);
     if (!isValid) {
+      securityLog('handover_code_failed', { parcelId: parcel.id, guardId, societyId });
       const remaining = Math.max(0, MAX_CODE_ATTEMPTS - (handover.otpAttempts + 1));
       throw fail(
         400,
