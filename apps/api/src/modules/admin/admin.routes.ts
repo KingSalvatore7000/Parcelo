@@ -59,6 +59,9 @@ router.patch('/users/:id', h(async (req, res) => {
   const body = updateUserSchema.parse(req.body);
   res.json({ success: true, data: await adminService.updateUser(req.user!.societyId, req.user!.id, req.params.id, body) });
 }));
+router.post('/users/:id/reset-password', h(async (req, res) => {
+  res.json({ success: true, data: await adminService.resetPassword(req.user!.societyId, req.user!.id, req.params.id) });
+}));
 router.delete('/users/:id', h(async (req, res) => {
   await adminService.deleteUser(req.user!.societyId, req.user!.id, req.params.id);
   res.json({ success: true });

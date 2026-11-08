@@ -1,12 +1,13 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { Navbar } from './components/Navbar';
-import { LoginPage } from './pages/LoginPage';
+import { LoginPage, homeFor } from './pages/LoginPage';
 import { GuardDeskPage } from './pages/GuardDeskPage';
 import { ResidentPage } from './pages/ResidentPage';
 import { AdminPage } from './pages/AdminPage';
+import { ChangePasswordPage } from './pages/ChangePasswordPage';
 
 // Route Guard component
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
@@ -14,6 +15,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
   allowedRoles,
 }) => {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -28,6 +30,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // A temporary password must be replaced before anything else (the API enforces it too)
+  if (user.mustChangePassword && location.pathname !== '/password') {
+    return <Navigate to="/password" replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -55,9 +62,7 @@ const RootRedirect: React.FC = () => {
     return null;
   }
 
-  if (user.role === 'GUARD') return <Navigate to="/guard" replace />;
-  if (user.role === 'RESIDENT') return <Navigate to="/resident" replace />;
-  return <Navigate to="/admin" replace />;
+  return <Navigate to={homeFor(user)} replace />;
 };
 
 export const App: React.FC = () => {
@@ -88,6 +93,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute allowedRoles={['ADMIN']}>
                   <AdminPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/password"
+              element={
+                <ProtectedRoute>
+                  <ChangePasswordPage />
                 </ProtectedRoute>
               }
             />

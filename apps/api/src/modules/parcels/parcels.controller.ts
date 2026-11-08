@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createParcelSchema, handoverVerifySchema, scheduleParcelSchema, ParcelStatus } from '@parcelo/shared';
 import { parcelsService } from './parcels.service';
-import { storageService } from '../../services/storage.service';
+import { storageService, signPhotoUrl } from '../../services/storage.service';
 
 export class ParcelsController {
   /**
@@ -47,8 +47,9 @@ export class ParcelsController {
       const status = typeof req.query.status === 'string' ? (req.query.status as ParcelStatus) : undefined;
       const search = typeof req.query.search === 'string' ? req.query.search : undefined;
       const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) || undefined : undefined;
+      const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : undefined;
 
-      const parcels = await parcelsService.getParcels({
+      const page = await parcelsService.getParcels({
         societyId: req.user.societyId,
         userRole: req.user.role,
         userId: req.user.id,
@@ -56,12 +57,14 @@ export class ParcelsController {
         status,
         search,
         limit,
+        cursor,
       });
 
       res.status(200).json({
         success: true,
-        count: parcels.length,
-        data: parcels,
+        count: page.items.length,
+        data: page.items,
+        nextCursor: page.nextCursor,
       });
     } catch (err) {
       next(err);
@@ -205,7 +208,9 @@ export class ParcelsController {
       const photoUrl = await storageService.uploadPhoto(image);
       res.status(200).json({
         success: true,
+        // the path to send back when logging the parcel; a signed link to show it now
         photoUrl,
+        previewUrl: signPhotoUrl(photoUrl),
       });
     } catch (err) {
       next(err);

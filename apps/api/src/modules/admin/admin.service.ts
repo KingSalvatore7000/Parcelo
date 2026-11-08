@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { ParcelStatus, UserRole, phoneRegex } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
-import { normalizePhone } from '../auth/auth.service';
+import { normalizePhone, setTemporaryPassword } from '../auth/auth.service';
+import { generateTempPassword, hashTempPassword } from '../../utils/crypto';
 
 type AppError = { status: number; code: string; message: string; details?: unknown };
 const fail = (status: number, code: string, message: string, details?: unknown): AppError => ({
@@ -198,7 +199,9 @@ export class AdminService {
       const u = await prisma.user.create({
         data: { societyId, name: data.name, phone: normalizePhone(data.phone), role: data.role, flatId },
       });
-      return { id: u.id, name: u.name, phone: u.phone, role: u.role, flatId: u.flatId };
+      // Shown to the admin once; the person sets their own password at first sign-in
+      const temporaryPassword = await setTemporaryPassword(u.id);
+      return { id: u.id, name: u.name, phone: u.phone, role: u.role, flatId: u.flatId, temporaryPassword };
     } catch (err) {
       if (isUniqueViolation(err)) throw fail(409, 'PHONE_TAKEN', 'Someone is already registered with this phone number.');
       throw err;
@@ -252,6 +255,16 @@ export class AdminService {
     }
     // Their sign-in stops working immediately: every request reloads the user
     await prisma.user.delete({ where: { id } });
+  }
+
+  /** A forgotten password: a new temporary one, shown once; the person's sessions end */
+  async resetPassword(societyId: string, actorId: string, id: string) {
+    if (id === actorId) {
+      throw fail(400, 'USE_CHANGE_PASSWORD', 'Change your own password from the Password page.');
+    }
+    const user = await prisma.user.findFirst({ where: { id, societyId }, select: { id: true, name: true, phone: true } });
+    if (!user) throw fail(404, 'USER_NOT_FOUND', 'Person not found in your society.');
+    return { ...user, temporaryPassword: await setTemporaryPassword(user.id) };
   }
 
   private async requireAnotherAdmin(societyId: string, exceptId: string) {
@@ -322,6 +335,13 @@ export class AdminService {
     }
     if (opts.dryRun) return { dryRun: true, ...summary };
 
+    // Each resident gets a temporary password, hashed before the transaction so it stays short
+    const withPasswords: (typeof valid[number] & { temporaryPassword: string; passwordHash: string })[] = [];
+    for (const v of valid) {
+      const temporaryPassword = generateTempPassword();
+      withPasswords.push({ ...v, temporaryPassword, passwordHash: await hashTempPassword(temporaryPassword) });
+    }
+
     await prisma.$transaction(async (tx) => {
       for (const key of newFlats) {
         const [tower, number] = key.split('|');
@@ -329,17 +349,26 @@ export class AdminService {
         flatByKey.set(key, f);
       }
       await tx.user.createMany({
-        data: valid.map((v) => ({
+        data: withPasswords.map((v) => ({
           societyId,
           name: v.name,
           phone: v.phone,
           role: UserRole.RESIDENT,
           flatId: flatByKey.get(flatKey(v.tower, v.number))!.id,
+          passwordHash: v.passwordHash,
+          mustChangePassword: true,
         })),
       });
     });
 
-    return { dryRun: false, ...summary };
+    // Shown once, for the committee to hand out; never stored in plain text
+    const credentials = withPasswords.map((v) => ({
+      name: v.name,
+      phone: v.phone,
+      flat: flatLabel({ tower: v.tower, number: v.number }),
+      temporaryPassword: v.temporaryPassword,
+    }));
+    return { dryRun: false, ...summary, credentials };
   }
 }
 

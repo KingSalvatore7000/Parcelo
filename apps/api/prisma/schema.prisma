@@ -38,6 +38,11 @@ enum NotificationStatus {
   FAILED
 }
 
+enum NotificationKind {
+  NEW_PARCEL
+  REMINDER
+}
+
 model Society {
   id        String   @id @default(uuid())
   name      String
@@ -73,6 +78,10 @@ model User {
   id        String    @id @default(uuid())
   name      String
   phone     String    @unique
+  /// bcrypt hash; null until an admin sets a temporary password
+  passwordHash       String?
+  /// true after an admin sets or resets the password: the user must choose their own
+  mustChangePassword Boolean @default(true)
   role      UserRole  @default(RESIDENT)
   societyId String
   society   Society   @relation(fields: [societyId], references: [id], onDelete: Cascade)
@@ -84,6 +93,7 @@ model User {
   loggedParcels   Parcel[]       @relation("LoggedParcels")
   completedHandovers Handover[]  @relation("CompletedHandovers")
   notifications   Notification[]
+  refreshTokens   RefreshToken[]
 
   @@index([societyId])
   @@index([flatId])
@@ -143,25 +153,31 @@ model Notification {
   parcelId  String?
   parcel    Parcel?             @relation(fields: [parcelId], references: [id], onDelete: Cascade)
   channel   NotificationChannel
+  kind      NotificationKind    @default(NEW_PARCEL)
   status    NotificationStatus  @default(PENDING)
+  attempts  Int                 @default(0)
+  lastError String?
   sentAt    DateTime?
   metadata  String?
   createdAt DateTime            @default(now())
 
   @@index([userId])
   @@index([parcelId])
+  @@index([status, createdAt])
   @@map("notifications")
 }
 
-model OtpSession {
-  id        String   @id @default(uuid())
-  phone     String
-  otpHash   String
-  expiresAt DateTime
-  attempts  Int      @default(0)
-  verified  Boolean  @default(false)
-  createdAt DateTime @default(now())
+/// A signed-in device. Only the SHA-256 of the token is stored; each refresh replaces it.
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 
-  @@index([phone])
-  @@map("otp_sessions")
+  @@index([userId])
+  @@map("refresh_tokens")
 }
+

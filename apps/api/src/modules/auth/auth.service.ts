@@ -1,8 +1,9 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '@parcelo/shared';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
-import { hashCode, verifyCode, generate6DigitOtp } from '../../utils/crypto';
+import { hashPassword, hashTempPassword, verifyPassword, generateTempPassword } from '../../utils/crypto';
 import { AuthUserPayload } from '../../middleware/auth';
 
 /**
@@ -22,139 +23,142 @@ export function normalizePhone(rawPhone: string): string {
   return `+${digits}`;
 }
 
+const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+
+type UserWithPlace = NonNullable<Awaited<ReturnType<typeof loadUser>>>;
+function loadUser(where: { id: string } | { phone: string }) {
+  return prisma.user.findUnique({ where, include: { society: true, flat: true } });
+}
+
+function profile(user: UserWithPlace) {
+  return {
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    role: user.role,
+    societyId: user.societyId,
+    societyName: user.society.name,
+    flatId: user.flatId,
+    mustChangePassword: user.mustChangePassword,
+    flat: user.flat
+      ? {
+          id: user.flat.id,
+          societyId: user.flat.societyId,
+          tower: user.flat.tower,
+          number: user.flat.number,
+          label: `Tower ${user.flat.tower} - ${user.flat.number}`,
+        }
+      : null,
+  };
+}
+
+/** Refuse a password that is easy to guess for this person */
+function weakPasswordReason(password: string, phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (password.replace(/\D/g, '').length >= 10 && digits.endsWith(password.replace(/\D/g, '').slice(-10))) {
+    return 'Do not use your phone number as your password.';
+  }
+  if (/^(password|parcelo)\d*$/i.test(password)) return 'Choose a password that is harder to guess.';
+  return null;
+}
+
+/**
+ * Give a user a new temporary password (an admin creating or resetting an account). They must
+ * change it at their next sign-in, and every session they have now ends.
+ * Returns the plain password: shown to the admin once, never stored.
+ */
+export async function setTemporaryPassword(userId: string): Promise<string> {
+  const temp = generateTempPassword();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: await hashTempPassword(temp), mustChangePassword: true },
+  });
+  await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  return temp;
+}
+
+const BAD_LOGIN = { status: 401, code: 'INVALID_LOGIN', message: 'That mobile number and password do not match.' };
+
 export class AuthService {
   /**
-   * Request OTP for phone login
+   * Sign in with a mobile number and password. The same answer for an unknown number and a wrong
+   * password, in the same time, so the form cannot be used to find out who is registered.
    */
-  async requestOtp(rawPhone: string) {
-    const phone = normalizePhone(rawPhone);
+  async login(rawPhone: string, password: string) {
+    const user = await loadUser({ phone: normalizePhone(rawPhone) });
+    const ok = await verifyPassword(password, user?.passwordHash);
+    if (!user || !ok) throw BAD_LOGIN;
 
-    // Verify user exists in the system
-    const user = await prisma.user.findUnique({
-      where: { phone },
-      include: {
-        society: true,
-        flat: true,
-      },
-    });
-
-    if (!user) {
-      throw {
-        status: 404,
-        code: 'USER_NOT_FOUND',
-        message: `No account registered with phone ${phone}. Please contact your society gate or admin to register your flat.`,
-      };
-    }
-
-    // Fixed OTP only in development (config leaves it undefined otherwise); random everywhere else
-    const otp = config.defaultDevOtp ?? generate6DigitOtp();
-    const otpHash = await hashCode(otp);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
-
-    // Invalidate this number's earlier sessions and sweep away any expired ones
-    await prisma.otpSession.deleteMany({
-      where: { OR: [{ phone }, { expiresAt: { lt: new Date() } }] },
-    });
-
-    // Save session
-    await prisma.otpSession.create({
-      data: {
-        phone,
-        otpHash,
-        expiresAt,
-        attempts: 0,
-      },
-    });
-
-    // Pluggable SMS logger / mock
-    if (config.mockSmsConsole) {
-      console.log('========================================================');
-      console.log(`📱 [MOCK SMS to ${phone}]`);
-      console.log(`Your Parcelo verification code is: [ ${otp} ]`);
-      console.log(`Valid for 5 minutes. Do not share this with anyone.`);
-      console.log('========================================================');
-    }
-
-    return {
-      success: true,
-      message: `OTP sent successfully to ${phone}`,
-      expiresInSeconds: 300,
-      devOtp: config.isDev ? otp : undefined,
-    };
+    const tokens = await this.issueTokens(user);
+    return { ...tokens, user: profile(user) };
   }
 
   /**
-   * Verify OTP and issue JWT session
+   * Change the signed-in user's password. Ends their other sessions; the one in use is replaced
+   * by the returned token pair.
    */
-  async verifyOtp(rawPhone: string, otp: string) {
-    const phone = normalizePhone(rawPhone);
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await loadUser({ id: userId });
+    if (!user) throw { status: 404, code: 'USER_NOT_FOUND', message: 'User not found.' };
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      throw { status: 400, code: 'WRONG_PASSWORD', message: 'Your current password is not right.' };
+    }
+    if (currentPassword === newPassword) {
+      throw { status: 400, code: 'SAME_PASSWORD', message: 'Choose a password different from the current one.' };
+    }
+    const weak = weakPasswordReason(newPassword, user.phone);
+    if (weak) throw { status: 400, code: 'WEAK_PASSWORD', message: weak };
 
-    const session = await prisma.otpSession.findFirst({
-      where: { phone },
-      orderBy: { createdAt: 'desc' },
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false },
     });
+    await prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
 
-    if (!session) {
-      throw {
-        status: 400,
-        code: 'NO_ACTIVE_OTP',
-        message: 'No active OTP request found for this phone number. Please request a new OTP.',
-      };
+    const fresh = (await loadUser({ id: user.id }))!;
+    const tokens = await this.issueTokens(fresh);
+    return { ...tokens, user: profile(fresh) };
+  }
+
+  /**
+   * Exchange a refresh token for a new pair. The old refresh token stops working; presenting it
+   * again means it was copied, so every session of that user is ended.
+   */
+  async refresh(refreshToken: string) {
+    const row = await prisma.refreshToken.findUnique({ where: { tokenHash: sha256(refreshToken) } });
+    const invalid = { status: 401, code: 'REFRESH_INVALID', message: 'Your session has ended. Please sign in again.' };
+
+    if (!row) throw invalid;
+    if (row.revokedAt) {
+      await prisma.refreshToken.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+      throw invalid;
     }
+    if (row.expiresAt < new Date()) throw invalid;
 
-    if (new Date() > session.expiresAt) {
-      await prisma.otpSession.delete({ where: { id: session.id } });
-      throw {
-        status: 400,
-        code: 'OTP_EXPIRED',
-        message: 'The OTP has expired. Please request a new code.',
-      };
-    }
-
-    if (session.attempts >= 5) {
-      await prisma.otpSession.delete({ where: { id: session.id } });
-      throw {
-        status: 429,
-        code: 'MAX_ATTEMPTS_EXCEEDED',
-        message: 'Too many incorrect attempts. For security, please request a fresh OTP.',
-      };
-    }
-
-    const isValid = await verifyCode(otp, session.otpHash);
-    if (!isValid) {
-      const remaining = 5 - (session.attempts + 1);
-      await prisma.otpSession.update({
-        where: { id: session.id },
-        data: { attempts: { increment: 1 } },
-      });
-
-      throw {
-        status: 400,
-        code: 'INVALID_OTP',
-        message: `Incorrect OTP entered. ${remaining > 0 ? `${remaining} attempts remaining.` : 'Please request a new OTP.'}`,
-      };
-    }
-
-    // OTP is valid! Clean up session
-    await prisma.otpSession.delete({ where: { id: session.id } });
-
-    // Fetch user details
-    const user = await prisma.user.findUnique({
-      where: { phone },
-      include: {
-        society: true,
-        flat: true,
-      },
+    // Revoke atomically, so two refreshes with one token cannot both succeed
+    const revoked = await prisma.refreshToken.updateMany({
+      where: { id: row.id, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
+    if (revoked.count === 0) throw invalid;
 
-    if (!user) {
-      throw {
-        status: 404,
-        code: 'USER_NOT_FOUND',
-        message: 'User record not found.',
-      };
-    }
+    const user = await loadUser({ id: row.userId });
+    if (!user) throw invalid;
 
+    const tokens = await this.issueTokens(user);
+    return { ...tokens, user: profile(user) };
+  }
+
+  /** End this device's session */
+  async logout(refreshToken: string | undefined) {
+    if (!refreshToken) return;
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash: sha256(refreshToken), revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  private async issueTokens(user: UserWithPlace) {
     const payload: AuthUserPayload = {
       id: user.id,
       name: user.name,
@@ -163,72 +167,33 @@ export class AuthService {
       societyId: user.societyId,
       flatId: user.flatId,
     };
+    const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn } as jwt.SignOptions);
 
-    const token = jwt.sign(payload, config.jwtSecret, {
-      expiresIn: config.jwtExpiresIn,
-    } as jwt.SignOptions);
-
-    return {
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        phone: user.phone,
-        role: user.role,
-        societyId: user.societyId,
-        societyName: user.society.name,
-        flatId: user.flatId,
-        flat: user.flat
-          ? {
-              id: user.flat.id,
-              societyId: user.flat.societyId,
-              tower: user.flat.tower,
-              number: user.flat.number,
-              label: `Tower ${user.flat.tower} - ${user.flat.number}`,
-            }
-          : null,
+    const refreshToken = crypto.randomBytes(32).toString('base64url');
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: sha256(refreshToken),
+        expiresAt: new Date(Date.now() + config.refreshTokenDays * 86_400_000),
       },
-    };
+    });
+    // Old, used or expired tokens of this user are no longer needed
+    await prisma.refreshToken.deleteMany({
+      where: { userId: user.id, OR: [{ expiresAt: { lt: new Date() } }, { revokedAt: { lt: new Date(Date.now() - 86_400_000) } }] },
+    });
+
+    return { token, refreshToken };
   }
 
   /**
    * Get user profile by ID
    */
   async getProfile(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        society: true,
-        flat: true,
-      },
-    });
-
+    const user = await loadUser({ id: userId });
     if (!user) {
-      throw {
-        status: 404,
-        code: 'USER_NOT_FOUND',
-        message: 'User profile not found.',
-      };
+      throw { status: 404, code: 'USER_NOT_FOUND', message: 'User profile not found.' };
     }
-
-    return {
-      id: user.id,
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      societyId: user.societyId,
-      societyName: user.society.name,
-      flatId: user.flatId,
-      flat: user.flat
-        ? {
-            id: user.flat.id,
-            societyId: user.flat.societyId,
-            tower: user.flat.tower,
-            number: user.flat.number,
-            label: `Tower ${user.flat.tower} - ${user.flat.number}`,
-          }
-        : null,
-    };
+    return profile(user);
   }
 }
 

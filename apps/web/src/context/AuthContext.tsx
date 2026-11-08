@@ -1,28 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, session, SessionPayload } from '../services/api';
+import { DEMO_PASSWORD } from '../config';
 
-export interface User {
-  id: string;
-  name: string;
-  phone: string;
-  role: 'RESIDENT' | 'GUARD' | 'ADMIN';
-  societyId: string;
-  societyName: string;
-  flatId?: string | null;
-  flat?: {
-    id: string;
-    tower: string;
-    number: string;
-    label: string;
-  } | null;
-}
+export type User = SessionPayload['user'];
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  loginWithOtp: (phone: string, otp: string) => Promise<User>;
+  login: (phone: string, password: string) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<User>;
   quickLogin: (phone: string) => Promise<User>;
   logout: () => void;
 }
@@ -31,7 +19,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('parcelo_token'));
+  // The session is the refresh token: the access token is renewed from it as it expires
+  const [token, setToken] = useState<string | null>(() => session.refresh() ?? session.access());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -55,28 +44,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadUser();
   }, [token]);
 
-  const loginWithOtp = async (phone: string, otp: string): Promise<User> => {
-    const res = await api.auth.verifyOtp(phone, otp);
-    const { token: newToken, user: userData } = res.data;
-    localStorage.setItem('parcelo_token', newToken);
-    setToken(newToken);
+  const startSession = ({ token: access, refreshToken, user: userData }: SessionPayload): User => {
+    session.save(access, refreshToken);
+    setToken(refreshToken);
     setUser(userData);
     return userData;
   };
 
-  const quickLogin = async (phone: string): Promise<User> => {
-    // Demo only: works when the API runs in development and returns the OTP
-    const reqRes = await api.auth.requestOtp(phone);
-    const otp = reqRes.devOtp;
-    if (!otp) {
-      throw new Error('Quick login needs the API running in development mode.');
-    }
-    // 2. Verify OTP
-    return loginWithOtp(phone, otp);
+  const login = async (phone: string, password: string): Promise<User> => {
+    const res = await api.auth.login(phone, password);
+    // Switching accounts (demo "Switch view"): end the previous session on the server
+    const previous = session.refresh();
+    if (previous) api.auth.logout(previous).catch(() => {});
+    return startSession(res.data);
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<User> => {
+    const res = await api.auth.changePassword(currentPassword, newPassword);
+    return startSession(res.data);
+  };
+
+  // Demo profiles only: the seeded demo accounts share one password
+  const quickLogin = (phone: string) => login(phone, DEMO_PASSWORD);
+
   const logout = () => {
-    localStorage.removeItem('parcelo_token');
+    const refreshToken = session.refresh();
+    if (refreshToken) api.auth.logout(refreshToken).catch(() => {});
+    session.clear();
     setToken(null);
     setUser(null);
   };
@@ -88,7 +82,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isAuthenticated: !!user,
         isLoading,
-        loginWithOtp,
+        login,
+        changePassword,
         quickLogin,
         logout,
       }}

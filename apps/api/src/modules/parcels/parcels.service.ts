@@ -4,6 +4,8 @@ import { prisma } from '../../lib/prisma';
 import { config } from '../../config/env';
 import { generate4DigitCode, hashCode, verifyCode } from '../../utils/crypto';
 import { socketService } from '../../services/socket.service';
+import { dbChannel } from '../../services/notify/notifier';
+import { signPhotoUrl } from '../../services/storage.service';
 import { availableSlots, findSlot, CODE_GRACE_MS } from './slots';
 
 const MAX_CODE_ATTEMPTS = 5;
@@ -43,9 +45,14 @@ export function feeForMode(mode: HandoverMode): number {
   return mode === HandoverMode.DOOR ? config.doorDeliveryFeePaise : 0;
 }
 
+/** What clients receive: the stored photo path becomes a signed link that works for a while */
+function present<T extends { photoUrl: string | null }>(p: T): T {
+  return { ...p, photoUrl: signPhotoUrl(p.photoUrl) };
+}
+
 export class ParcelsService {
-  private loadView(id: string) {
-    return prisma.parcel.findUniqueOrThrow({ where: { id }, include: parcelView });
+  private async loadView(id: string) {
+    return present(await prisma.parcel.findUniqueOrThrow({ where: { id }, include: parcelView }));
   }
 
   /**
@@ -66,26 +73,29 @@ export class ParcelsService {
       throw fail(404, 'FLAT_NOT_FOUND', 'The selected flat was not found in your society.');
     }
 
-    const parcel = await prisma.parcel.create({
-      data: {
-        societyId: data.societyId,
-        flatId: data.flatId,
-        courier: data.courier.trim(),
-        photoUrl: data.photoUrl,
-        status: ParcelStatus.LOGGED,
-        loggedById: data.guardId,
-      },
-      include: parcelView,
-    });
+    const parcel = present(
+      await prisma.parcel.create({
+        data: {
+          societyId: data.societyId,
+          flatId: data.flatId,
+          courier: data.courier.trim(),
+          photoUrl: data.photoUrl,
+          status: ParcelStatus.LOGGED,
+          loggedById: data.guardId,
+        },
+        include: parcelView,
+      })
+    );
 
-    // Queue one notification per resident of the flat. They stay PENDING until a
-    // delivery channel (push / WhatsApp / SMS) actually sends them.
+    // Queue one notification per resident of the flat; the outbox job sends them
+    // through the configured channel (WhatsApp, SMS or the console in development).
     if (flat.users.length > 0) {
       await prisma.notification.createMany({
         data: flat.users.map((u) => ({
           userId: u.id,
           parcelId: parcel.id,
-          channel: 'PUSH' as const,
+          channel: dbChannel(),
+          kind: 'NEW_PARCEL' as const,
           status: 'PENDING' as const,
           metadata: `New ${parcel.courier} parcel received at society gate`,
         })),
@@ -99,7 +109,8 @@ export class ParcelsService {
   }
 
   /**
-   * List parcels scoped by role and societyId, newest first, capped
+   * List parcels scoped by role and societyId, newest first, a page at a time.
+   * Pass the previous page's nextCursor to get the next one; null means there is no more.
    */
   async getParcels(params: {
     societyId: string;
@@ -109,6 +120,7 @@ export class ParcelsService {
     status?: ParcelStatus;
     search?: string;
     limit?: number;
+    cursor?: string;
   }) {
     const where: Prisma.ParcelWhereInput = { societyId: params.societyId };
 
@@ -137,12 +149,22 @@ export class ParcelsService {
 
     const take = Math.min(Math.max(params.limit ?? DEFAULT_LIST_LIMIT, 1), MAX_LIST_LIMIT);
 
-    return prisma.parcel.findMany({
+    if (params.cursor) {
+      // Rows strictly after the cursor row in (loggedAt desc, id desc) order
+      const at = await prisma.parcel.findFirst({ where: { id: params.cursor, societyId: params.societyId }, select: { loggedAt: true, id: true } });
+      if (!at) throw fail(400, 'INVALID_CURSOR', 'That page of parcels is no longer available. Reload the list.');
+      where.AND = [{ OR: [{ loggedAt: { lt: at.loggedAt } }, { loggedAt: at.loggedAt, id: { lt: at.id } }] }];
+    }
+
+    const rows = await prisma.parcel.findMany({
       where,
       include: parcelView,
-      orderBy: { loggedAt: 'desc' },
-      take,
+      orderBy: [{ loggedAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
     });
+    const hasMore = rows.length > take;
+    const items = rows.slice(0, take).map(present);
+    return { items, nextCursor: hasMore ? items[items.length - 1].id : null };
   }
 
   /**
@@ -153,7 +175,7 @@ export class ParcelsService {
     if (!parcel) {
       throw fail(404, 'PARCEL_NOT_FOUND', 'Parcel not found.');
     }
-    return parcel;
+    return present(parcel);
   }
 
   /**

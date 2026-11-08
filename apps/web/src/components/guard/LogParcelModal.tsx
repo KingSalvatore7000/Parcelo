@@ -32,7 +32,9 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
   const [selectedFlatId, setSelectedFlatId] = useState<string>('');
   const [flatSearch, setFlatSearch] = useState<string>('');
   const [flats, setFlats] = useState<any[]>([]);
+  // photoUrl: the stored path sent with the parcel; photoPreview: a signed link to show it now
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -81,6 +83,7 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
       const dataUrl = await toUploadableJpeg(file);
       const res = await api.parcels.uploadPhoto(dataUrl);
       setPhotoUrl(res.photoUrl);
+      setPhotoPreview(res.previewUrl);
     } catch (err: any) {
       setError(err.message || 'Could not upload the photo. Try again.');
     } finally {
@@ -264,10 +267,10 @@ export const LogParcelModal: React.FC<LogParcelModalProps> = ({
               </div>
             ) : photoUrl ? (
               <div className="relative rounded-xl overflow-hidden border border-line dark:border-slate-700 h-28 bg-mist dark:bg-slate-800 flex items-center justify-center">
-                <img src={assetUrl(photoUrl)} alt="Parcel preview" className="w-full h-full object-cover" />
+                <img src={assetUrl(photoPreview)} alt="Parcel preview" className="w-full h-full object-cover" />
                 <button
                   type="button"
-                  onClick={() => setPhotoUrl(null)}
+                  onClick={() => { setPhotoUrl(null); setPhotoPreview(null); }}
                   className="absolute top-2 right-2 bg-night/80 text-white p-1 rounded-full hover:bg-night"
                 >
                   <X className="w-4 h-4" />

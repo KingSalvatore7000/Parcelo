@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [Feature, hardening, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: parcelo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d parcelo_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/parcelo_test?schema=test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # postinstall builds packages/shared and generates the Prisma client
+      - run: npm ci
+
+      - name: Type-check API
+        run: npx tsc --noEmit -p apps/api
+
+      - name: Build web
+        run: npm run build:web
+
+      - name: API tests
+        run: npm test

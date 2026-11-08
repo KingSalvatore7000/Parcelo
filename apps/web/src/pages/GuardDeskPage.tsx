@@ -21,6 +21,10 @@ export const GuardDeskPage: React.FC = () => {
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
   const [handoverParcel, setHandoverParcel] = useState<any | null>(null);
 
+  // The list loads 100 parcels at a time, newest first; "Load more" fetches the next page
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+
   // Fetch parcels
   const fetchParcels = async () => {
     try {
@@ -31,10 +35,29 @@ export const GuardDeskPage: React.FC = () => {
         searchQuery || undefined
       );
       setParcels(res.data);
+      setNextCursor(res.nextCursor);
     } catch (err: any) {
       setError(err.message || 'Failed to load parcel list.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    try {
+      setIsLoadingMore(true);
+      const res = await api.parcels.getParcels(
+        filterTab === 'ALL' ? undefined : filterTab,
+        searchQuery || undefined,
+        nextCursor
+      );
+      setParcels((prev) => [...prev, ...res.data.filter((p: any) => !prev.some((q) => q.id === p.id))]);
+      setNextCursor(res.nextCursor);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load more parcels.');
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -506,6 +529,20 @@ export const GuardDeskPage: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {!isLoading && nextCursor && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            className="px-6 py-2.5 rounded-xl border text-sm font-bold transition hover:bg-white disabled:opacity-50"
+            style={{ borderColor: '#DCE5E3', color: '#0B5D5B' }}
+          >
+            {isLoadingMore ? 'Loading…' : 'Load more parcels'}
+          </button>
         </div>
       )}
 

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard, Building2, Users, Upload, RefreshCw, AlertCircle, CheckCircle2,
-  Trash2, Loader2, Plus, Clock, PackageCheck, Package, Truck, Save,
+  Trash2, Loader2, Plus, Clock, PackageCheck, Package, Truck, Save, KeyRound, Download,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { api, ApiError, AdminStats, AdminFlat, AdminUser, Role } from '../services/api';
+import { api, ApiError, AdminStats, AdminFlat, AdminUser, Role, ImportedCredential } from '../services/api';
 import { formatFee } from '../config';
 
 type Tab = 'overview' | 'flats' | 'people' | 'import';
@@ -37,6 +37,41 @@ const Notice: React.FC<{ kind: 'error' | 'ok'; children: React.ReactNode; onClos
     )}
   </div>
 );
+
+/** A temporary password, shown once: the admin hands it over, the person replaces it at first sign-in */
+const TempPassword: React.FC<{ name: string; phone: string; password: string }> = ({ name, phone, password }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+    } catch {
+      /* clipboard blocked: the password is on screen to read out */
+    }
+  };
+  return (
+    <div className="space-y-1">
+      <p>{name} ({phone}) can sign in with this temporary password. It is shown only once:</p>
+      <p className="flex items-center gap-2">
+        <code className="font-mono text-base bg-white text-night px-2 py-1 rounded border border-line select-all">{password}</code>
+        <button type="button" onClick={copy} className="text-xs underline">{copied ? 'Copied' : 'Copy'}</button>
+      </p>
+      <p className="font-normal text-night">They will choose their own password when they first sign in.</p>
+    </div>
+  );
+};
+
+/** Plain CSV of the imported residents' temporary passwords, for the committee to print or share */
+function downloadCredentials(rows: ImportedCredential[]) {
+  const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const csv = ['name,phone,flat,temporary password', ...rows.map((r) => [r.name, r.phone, r.flat, r.temporaryPassword].map(esc).join(','))].join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'parcelo-temporary-passwords.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const StatCard: React.FC<{ label: string; value: React.ReactNode; sub?: string; icon: React.ReactNode; tone?: 'teal' | 'amber' | 'leaf' | 'coral' }> = ({
   label, value, sub, icon, tone = 'teal',
@@ -266,7 +301,7 @@ const Flats: React.FC = () => {
 
 // ─── People ──────────────────────────────────────────────────────────────────
 const PersonRow: React.FC<{
-  u: AdminUser; flats: AdminFlat[]; isSelf: boolean; onSaved: (msg: string) => void; onError: (msg: string) => void;
+  u: AdminUser; flats: AdminFlat[]; isSelf: boolean; onSaved: (msg: React.ReactNode) => void; onError: (msg: string) => void;
 }> = ({ u, flats, isSelf, onSaved, onError }) => {
   const [role, setRole] = useState<Role>(u.role);
   const [flatId, setFlatId] = useState<string>(u.flatId ?? '');
@@ -280,6 +315,19 @@ const PersonRow: React.FC<{
       onSaved(`${u.name} updated.`);
     } catch (err) {
       onError(errMsg(err, 'Could not save changes.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!window.confirm(`Give ${u.name} a new temporary password? Their current password stops working and they are signed out.`)) return;
+    setBusy(true);
+    try {
+      const res = await api.admin.resetPassword(u.id);
+      onSaved(<TempPassword name={u.name} phone={u.phone} password={res.data.temporaryPassword} />);
+    } catch (err) {
+      onError(errMsg(err, 'Could not reset the password.'));
     } finally {
       setBusy(false);
     }
@@ -318,6 +366,11 @@ const PersonRow: React.FC<{
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
           </button>
         )}
+        {!isSelf && (
+          <button onClick={resetPassword} disabled={busy} className={`${btnGhost} text-sage hover:bg-mist mr-1`} title="Reset password" aria-label={`Reset password for ${u.name}`}>
+            <KeyRound className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button onClick={remove} disabled={isSelf || busy} className={`${btnGhost} text-brick hover:bg-brick-light`} title={isSelf ? 'You cannot remove yourself' : 'Remove'}>
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -333,7 +386,7 @@ const People: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<Role | 'ALL'>('ALL');
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
+  const [ok, setOk] = useState<React.ReactNode>(null);
   const [form, setForm] = useState({ name: '', phone: '', role: 'RESIDENT' as Role, flatId: '' });
   const [busy, setBusy] = useState(false);
 
@@ -352,8 +405,8 @@ const People: React.FC = () => {
     e.preventDefault();
     setError(null); setOk(null); setBusy(true);
     try {
-      await api.admin.createUser({ ...form, flatId: form.flatId || null });
-      setOk(`${form.name} added. They can sign in with ${form.phone}.`);
+      const res = await api.admin.createUser({ ...form, flatId: form.flatId || null });
+      setOk(<TempPassword name={res.data.name} phone={res.data.phone} password={res.data.temporaryPassword} />);
       setForm({ ...form, name: '', phone: '' });
       await load();
     } catch (err) {
@@ -456,10 +509,13 @@ const Import: React.FC = () => {
   const [busy, setBusy] = useState<'check' | 'import' | null>(null);
   const [result, setResult] = useState<{ kind: 'ok' | 'error'; text: string; rows?: { line: number; message: string }[] } | null>(null);
   const [checked, setChecked] = useState(false);
+  // The imported residents' temporary passwords, shown once
+  const [credentials, setCredentials] = useState<ImportedCredential[] | null>(null);
 
   const run = async (dryRun: boolean) => {
     setBusy(dryRun ? 'check' : 'import');
     setResult(null);
+    setCredentials(null);
     try {
       const res = await api.admin.importResidents({ csv, createMissingFlats, dryRun });
       const d = res.data;
@@ -468,7 +524,8 @@ const Import: React.FC = () => {
         setChecked(true);
         setResult({ kind: 'ok', text: `All ${d.residents} row${d.residents === 1 ? '' : 's'} look good: ${d.residents} resident${d.residents === 1 ? '' : 's'}${flatsText} will be added.` });
       } else {
-        setResult({ kind: 'ok', text: `Imported ${d.residents} resident${d.residents === 1 ? '' : 's'}${flatsText}. They can sign in with their mobile numbers now.` });
+        setResult({ kind: 'ok', text: `Imported ${d.residents} resident${d.residents === 1 ? '' : 's'}${flatsText}. Download their temporary passwords now: they are shown only once.` });
+        setCredentials(d.credentials ?? []);
         setCsv('');
         setChecked(false);
       }
@@ -534,6 +591,37 @@ const Import: React.FC = () => {
             </ul>
           )}
         </Notice>
+      )}
+
+      {credentials && credentials.length > 0 && (
+        <div className="bg-white border border-line rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <h3 className="font-heading font-extrabold text-night">Temporary passwords</h3>
+            <button onClick={() => downloadCredentials(credentials)} className={btnPrimary}>
+              <Download className="w-4 h-4" /> Download CSV
+            </button>
+          </div>
+          <div className="overflow-x-auto max-h-80">
+            <table className="w-full text-sm">
+              <thead className="bg-mist text-xs uppercase tracking-wider text-sage">
+                <tr><th className="text-left px-4 py-2">Name</th><th className="text-left px-4 py-2">Mobile</th><th className="text-left px-4 py-2">Flat</th><th className="text-left px-4 py-2">Temporary password</th></tr>
+              </thead>
+              <tbody>
+                {credentials.map((c) => (
+                  <tr key={c.phone} className="border-t border-line">
+                    <td className="px-4 py-2 font-bold text-night">{c.name}</td>
+                    <td className="px-4 py-2 font-mono text-xs">{c.phone}</td>
+                    <td className="px-4 py-2">{c.flat}</td>
+                    <td className="px-4 py-2 font-mono">{c.temporaryPassword}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="px-4 py-3 text-xs text-sage border-t border-line">
+            Each resident chooses their own password at first sign-in. Share these privately and delete the file afterwards.
+          </p>
+        </div>
       )}
     </div>
   );

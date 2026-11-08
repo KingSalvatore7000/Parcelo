@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { API_BASE_URL as SOCKET_URL } from '../config';
+import { freshAccessToken } from '../services/api';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -17,7 +18,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!user) {
+    // No live updates until a temporary password is replaced (the server refuses the socket)
+    if (!user || user.mustChangePassword) {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -36,7 +38,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const newSocket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
-      auth: (cb) => cb({ token: localStorage.getItem('parcelo_token') }),
+      // A fresh access token on every (re)connect, renewed first if it is about to expire
+      auth: (cb) => {
+        freshAccessToken().then((token) => cb({ token }));
+      },
     });
 
     socketRef.current = newSocket;
@@ -63,7 +68,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         socketRef.current = null;
       }
     };
-  }, [user?.id, user?.societyId]);
+  }, [user?.id, user?.societyId, user?.mustChangePassword]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
